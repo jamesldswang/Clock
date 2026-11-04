@@ -52,11 +52,36 @@ function showWin() {
 
 function toggleWin() { win.isVisible() && win.isFocused() ? win.hide() : showWin(); }
 
-function trayIcon() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-    <circle cx="16" cy="16" r="14" fill="#ff9f0a"/><circle cx="16" cy="16" r="11" fill="#1e1e1e"/>
-    <path d="M16 9v7l5 3" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>`;
-  return nativeImage.createFromDataURL('data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64'));
+// Windows 的 nativeImage 不支援 SVG（會變成空白灰框），所以直接畫成點陣圖。
+// 設計座標是 32x32：橘色外圈、深色錶面、白色指針。
+function drawIconBitmap(size) {
+  const k = size / 32, SS = 4; // 每個像素取 4x4 個樣本做反鋸齒
+  const buf = Buffer.alloc(size * size * 4);
+  const segDist = (px, py, ax, ay, bx, by) => {
+    const dx = bx - ax, dy = by - ay;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+  };
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let r = 0, g = 0, b = 0, a = 0;
+    for (let sy = 0; sy < SS; sy++) for (let sx = 0; sx < SS; sx++) {
+      const px = (x + (sx + 0.5) / SS) / k, py = (y + (sy + 0.5) / SS) / k;
+      const d = Math.hypot(px - 16, py - 16);
+      let c = null;
+      if (segDist(px, py, 16, 9, 16, 16) <= 1.25 || segDist(px, py, 16, 16, 21, 19) <= 1.25) c = [255, 255, 255];
+      else if (d <= 11) c = [0x1e, 0x1e, 0x1e];
+      else if (d <= 14) c = [0xff, 0x9f, 0x0a];
+      if (c) { r += c[0]; g += c[1]; b += c[2]; a++; }
+    }
+    const n = SS * SS, i = (y * size + x) * 4;
+    // BGRA、預乘 alpha
+    buf[i] = b / n; buf[i + 1] = g / n; buf[i + 2] = r / n; buf[i + 3] = (a / n) * 255;
+  }
+  return buf;
+}
+
+function trayIcon(size = 32) {
+  return nativeImage.createFromBitmap(drawIconBitmap(size), { width: size, height: size });
 }
 
 function loginItemArgs() {
@@ -85,7 +110,10 @@ app.whenReady().then(() => {
   ipcMain.on('get-version', (e) => { e.returnValue = app.getVersion(); });
   createWindow();
 
-  tray = new Tray(trayIcon().resize({ width: 16, height: 16 }));
+  // 16px 給一般螢幕，另外附 32px 給高解析度（150%/200% 縮放）螢幕
+  const trayImg = trayIcon(16);
+  trayImg.addRepresentation({ scaleFactor: 2, width: 32, height: 32, buffer: drawIconBitmap(32) });
+  tray = new Tray(trayImg);
   tray.setToolTip(`時鐘 v${app.getVersion()} — Ctrl+Alt+C`);
   tray.on('click', toggleWin);
   buildTrayMenu();
