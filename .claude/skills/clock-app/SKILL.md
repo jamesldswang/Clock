@@ -33,9 +33,9 @@ description: 修改、測試、打包「時鐘」桌面 App（C:\Users\user\Cloc
 5. **打包**：`npm run dist`
 6. **重新啟動 App**：使用者平常用的是打包版。
    ```bash
-   powershell -NoProfile -Command "Start-Process 'C:\Users\user\ClockApp\dist\Clock-1.0.0-win-x64\時鐘.exe'"
+   powershell -NoProfile -Command "Start-Process 'C:\Users\user\ClockApp\dist\Clock-1.0.1-win-x64\時鐘.exe'"
    ```
-   路徑裡的 `1.0.0` 要換成現在的版號。
+   路徑裡的 `1.0.1` 要換成現在的版號。
 
 版號在 `package.json` 的 `version`。使用者沒說要改就不要動；改了之後，視窗右上角、系統匣選單和 zip 檔名都會自動跟著變。
 
@@ -70,6 +70,7 @@ cd /c/Users/user/ClockApp
 
 - **Fn 鍵不能當快捷鍵。** Fn 是筆電鍵盤韌體自己處理的，Windows 收不到。快捷鍵定義在 `main.js` 的 `HOTKEY`。
 - **不能打包成單一 `.exe`。** 這台電腦開了 Windows 11 的「智慧型應用程式控制」，會擋下沒有數位簽章、又沒有信譽的執行檔。electron-builder 產生的 portable exe 會被擋，錯誤訊息是 `An Application Control policy has blocked this file`。`build.js` 的做法是直接複製原版的 `electron.exe` 並改名成 `時鐘.exe`，檔案內容（hash）不變，所以 Windows 認得、不會擋。**不要改回 electron-builder，也不要修改 exe 本身**，例如改圖示或寫入版本資訊。
+- **圖示不能用 SVG。** Windows 的 `nativeImage` 讀不了 SVG，系統匣會變成灰色空框（1.0.1 修正）。現在是 `main.js` 的 `drawIconBitmap(size)` 直接畫 BGRA 點陣圖，再用 `nativeImage.createFromBitmap` 轉成圖示；系統匣用 16px，另外用 `addRepresentation` 附 32px 給高 DPI。要改圖示就改這個函式，不要再用 SVG data URL。
 - **electron-builder 的 winCodeSign 解壓會失敗**，因為這台電腦沒有建立 symlink 的權限。現在已經沒有用 electron-builder，只是記錄下來。
 - **npm 預設擋 postinstall。** 第一次 `npm install` 之後，要執行 `npm install-scripts approve electron` 和 `npm rebuild electron`，才會下載 Electron 執行檔。
 - **不要用 `<input type="time">` 和 `type="date"`。** 使用者回報時間沒辦法設定。鬧鐘的時、分和年、月、日都改成自製的 ▲▼ 轉輪（`.time-spinner`，支援按住連續調整、鍵盤上下鍵、滑鼠滾輪）。要新增時間或日期欄位時，沿用 `stepAlarm()` 那一套寫法。
