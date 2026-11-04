@@ -37,7 +37,7 @@ macOS 風格的 Windows 桌面時鐘。程式常駐在系統匣，按 **Ctrl+Alt
 
 ### 方式一：使用打包好的版本（推薦）
 
-1. 把 `Clock-1.0.1-win-x64.zip` 複製到電腦上，按右鍵選「解壓縮全部」，放到固定的位置（例如 `C:\Tools\Clock`）。
+1. 到 [GitHub Releases](https://github.com/jamesldswang/Clock/releases/latest) 下載 `Clock-1.0.1-win-x64.zip`（或從別台電腦複製過來），按右鍵選「解壓縮全部」，放到固定的位置（例如 `C:\Tools\Clock`）。
 2. 打開資料夾，雙擊 **`時鐘.exe`**。執行後畫面上不會跳出視窗，請看右下角系統匣有沒有出現時鐘圖示。
 3. 按 **Ctrl+Alt+C** 叫出時鐘。
 4. 建議在系統匣圖示按右鍵，勾選 **開機自動啟動**。
@@ -77,6 +77,16 @@ npm run dist
 - `dist\Clock-1.0.1-win-x64\`：可以直接執行的資料夾
 - `dist\Clock-1.0.1-win-x64.zip`：同一個資料夾的壓縮檔，方便帶到其他電腦
 
+### 發布到 GitHub Release
+
+先在 README 的「版本紀錄」加上新版本的段落，並把 `package.json` 的版號改好，執行 `npm run dist` 之後再執行：
+
+```bash
+bash tools/release.sh
+```
+
+會建立 `v<版號>` 的 Release，說明文字取自 README 版本紀錄裡該版本的段落，並上傳 zip。GitHub 登入資料沿用 git 已存的帳密。
+
 > **為什麼不打包成單一個 .exe？** Windows 11 的「智慧型應用程式控制」會擋下沒有數位簽章、內容又不是 Windows 認得的程式。單一 `.exe` 的打包工具會改動 Electron 主程式，所以會被擋。`build.js` 直接沿用原版 Electron 主程式，只改檔名、內容不變，所以可以正常執行。
 
 ---
@@ -106,7 +116,9 @@ ClockApp/
 ├── build.js       # 打包腳本（npm run dist）
 ├── tools/
 │   ├── run-in-app.js    # 測試工具：在 App 裡執行測試程式碼
-│   └── example-test.js  # 測試範例
+│   ├── example-test.js  # 測試範例
+│   ├── release.sh       # 發布 GitHub Release 並上傳 zip
+│   └── release-body.js  # 產生 Release 說明文字（release.sh 會呼叫）
 ├── .claude/skills/clock-app/SKILL.md  # 給 Claude Code 的專案說明
 ├── package.json   # 專案設定、版本號、打包設定
 └── README.md
