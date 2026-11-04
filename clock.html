@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>macOS 時鐘套件</title>
+    <!-- 網頁標籤顯示鬧鐘 ICON -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⏰</text></svg>">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+            user-select: none;
+        }
+
+        body {
+            background-color: #141414;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .window {
+            width: 420px;
+            height: 640px;
+            background-color: #1e1e1e;
+            border-radius: 16px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .header {
+            background-color: #282828;
+            padding: 12px 16px 10px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .window-controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .dot { width: 12px; height: 12px; border-radius: 50%; }
+        .dot-close { background-color: #ff5f56; }
+        .dot-min { background-color: #ffbd2e; }
+        .dot-max { background-color: #27c93f; }
+
+        .nav-tabs {
+            display: flex;
+            background-color: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 2px;
+        }
+
+        .nav-tab {
+            flex: 1;
+            text-align: center;
+            padding: 8px 0;
+            font-size: 13px;
+            font-weight: 500;
+            color: #8e8e93;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .nav-tab.active {
+            background-color: #3a3a3c;
+            color: #ffffff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .content {
+            flex: 1;
+            position: relative;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tab-panel {
+            display: none;
+            padding: 20px;
+            height: 100%;
+            flex-direction: column;
+            box-sizing: border-box;
+        }
+
+        .tab-panel.active {
+            display: flex;
+        }
+
+        .btn {
+            border: none;
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+        .btn:active { opacity: 0.7; }
+        .btn-primary { background-color: #ff9500; color: #fff; }
+        .btn-secondary { background-color: #323234; color: #fff; }
+
+        /* 世界時鐘 */
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .world-clock-list { display: flex; flex-direction: column; gap: 12px; }
+        .clock-card {
+            background: #2c2c2e;
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .city-name { font-size: 18px; font-weight: 600; }
+        .time-offset { font-size: 12px; color: #8e8e93; margin-top: 2px; }
+        .digital-time { font-size: 26px; font-weight: 300; }
+
+        /* 鬧鐘 */
+        .alarm-list { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+        .alarm-card {
+            background: #2c2c2e;
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .alarm-card.off .alarm-time, .alarm-card.off .alarm-label { opacity: 0.45; }
+        .alarm-time { font-size: 32px; font-weight: 300; }
+        .alarm-label { font-size: 13px; color: #8e8e93; }
+        .alarm-repeat { font-size: 12px; color: #ff9f0a; margin-top: 2px; }
+        .alarm-actions { display: flex; align-items: center; gap: 12px; }
+        .alarm-del {
+            width: 30px; height: 30px; border: none; border-radius: 50%; background: #3a3a3c;
+            color: #ff453a; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .alarm-del:hover { background: #ff453a; color: #fff; }
+        .alarm-empty { text-align: center; color: #636366; font-size: 14px; padding: 40px 0; }
+
+        /* 新增鬧鐘：重複方式 */
+        #alarmModal .modal-content { max-height: 92%; overflow-y: auto; }
+        .seg { display: flex; background: #1e1e1e; border-radius: 8px; padding: 2px; }
+        .seg-btn {
+            flex: 1; border: none; background: transparent; color: #8e8e93; padding: 7px 0;
+            font-size: 13px; border-radius: 6px; cursor: pointer;
+        }
+        .seg-btn.active { background: #3a3a3c; color: #fff; }
+        .weekdays { display: flex; justify-content: space-between; gap: 4px; }
+        .wd-btn {
+            width: 36px; height: 36px; border-radius: 50%; border: 1px solid #3a3a3c;
+            background: #1e1e1e; color: #8e8e93; font-size: 13px; cursor: pointer;
+        }
+        .wd-btn.active { background: #ff9f0a; border-color: #ff9f0a; color: #fff; font-weight: 600; }
+        .wd-presets { display: flex; gap: 6px; margin-top: 8px; }
+        .wd-presets button {
+            flex: 1; border: none; background: #1e1e1e; color: #8e8e93; border-radius: 6px;
+            padding: 5px 0; font-size: 12px; cursor: pointer;
+        }
+        .wd-presets button:hover { color: #fff; }
+        .time-spinner.small .spin-btn { width: 56px; height: 24px; font-size: 11px; }
+        .time-spinner.small .spin-value { width: 56px; height: 38px; font-size: 20px; }
+        .time-spinner.small .spin-value.year, .time-spinner.small .spin-btn.year { width: 72px; }
+        .time-spinner.small .spin-colon { font-size: 20px; margin-bottom: 16px; }
+        .gcal-check {
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+            font-size: 13px; color: #ebebf5; margin-top: 10px; cursor: pointer;
+        }
+        .gcal-check input { width: 16px; height: 16px; accent-color: #ff9f0a; padding: 0; }
+        .gcal-link {
+            margin-left: 8px; border: none; background: none; color: #64d2ff; font-size: 12px;
+            cursor: pointer; padding: 0;
+        }
+        .gcal-link:hover { text-decoration: underline; }
+        .alarm-error { color: #ff453a; font-size: 12px; min-height: 14px; }
+
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #3a3a3c; transition: .3s; border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 20px; width: 20px;
+            left: 2px; bottom: 2px; background-color: white; transition: .3s; border-radius: 50%;
+        }
+        input:checked + .slider { background-color: #30d158; }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        /* 碼錶 */
+        .stopwatch-display { font-size: 56px; font-weight: 200; text-align: center; margin: 20px 0; }
+        .stopwatch-controls { display: flex; justify-content: space-around; margin-bottom: 20px; }
+        .laps-list { flex: 1; overflow-y: auto; border-top: 1px solid #2c2c2e; padding-top: 10px; }
+        .lap-item {
+            display: grid; grid-template-columns: 1fr 1fr 1fr; padding: 8px 12px; font-size: 14px;
+            color: #ebebf5; border-bottom: 1px solid #2c2c2e; font-variant-numeric: tabular-nums;
+        }
+        .lap-item span:nth-child(2) { text-align: center; }
+        .lap-item span:nth-child(3) { text-align: right; color: #8e8e93; }
+        .lap-item.head { color: #8e8e93; font-size: 12px; padding-top: 0; }
+        .lap-item.fastest span:nth-child(-n+2) { color: #30d158; }
+        .lap-item.slowest span:nth-child(-n+2) { color: #ff453a; }
+        .lap-hint { text-align: center; color: #636366; font-size: 13px; padding: 16px 8px; line-height: 1.6; }
+
+        /* 計時器 */
+        .timer-container { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; }
+        .circle-container { position: relative; width: 220px; height: 220px; display: flex; justify-content: center; align-items: center; }
+        .circle-bg { fill: none; stroke: #2c2c2e; stroke-width: 8; }
+        .circle-progress {
+            fill: none; stroke: #ff9500; stroke-width: 8; stroke-linecap: round;
+            transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset 0.5s linear;
+        }
+        .timer-text-group { position: absolute; display: flex; flex-direction: column; align-items: center; }
+        .timer-target { font-size: 13px; color: #8e8e93; margin-bottom: 4px; }
+        .timer-time { font-size: 44px; font-weight: 300; }
+        .timer-inputs { display: flex; gap: 10px; margin-top: 20px; }
+        .time-input-box { display: flex; flex-direction: column; align-items: center; }
+        .time-input-box input {
+            width: 50px; height: 36px; background: #2c2c2e; border: 1px solid #3a3a3c;
+            border-radius: 6px; color: #fff; font-size: 16px; text-align: center;
+        }
+        .time-input-box label { font-size: 11px; color: #8e8e93; margin-top: 4px; }
+        .timer-controls { display: flex; gap: 16px; width: 100%; margin-top: 24px; }
+        .timer-controls .btn { flex: 1; }
+
+        /* 鬧鐘時間轉輪 */
+        .time-spinner { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 4px 0; }
+        .spin-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .spin-btn {
+            width: 64px; height: 30px; border: none; border-radius: 8px; background: #3a3a3c;
+            color: #fff; font-size: 14px; cursor: pointer; transition: background 0.15s;
+        }
+        .spin-btn:hover { background: #48484a; }
+        .spin-btn:active { background: #ff9f0a; }
+        .spin-value {
+            width: 64px; height: 52px; display: flex; align-items: center; justify-content: center;
+            background: #1e1e1e; border: 1px solid #3a3a3c; border-radius: 8px;
+            font-size: 30px; font-weight: 300; font-variant-numeric: tabular-nums; outline: none;
+        }
+        .spin-value:focus { border-color: #ff9f0a; }
+        .spin-label { font-size: 11px; color: #8e8e93; }
+        .spin-colon { font-size: 30px; font-weight: 300; margin-bottom: 18px; }
+
+        /* 鬧鐘響鈴 */
+        #ringModal { z-index: 20; }
+        .ring-content { align-items: center; text-align: center; gap: 8px; padding: 28px 20px; }
+        .ring-icon { font-size: 44px; animation: ring-shake 0.5s ease-in-out infinite; }
+        .ring-time { font-size: 48px; font-weight: 300; font-variant-numeric: tabular-nums; }
+        .ring-label { font-size: 18px; color: #ebebf5; margin-bottom: 12px; word-break: break-all; }
+        .ring-stop { width: 100%; padding: 12px; font-size: 16px; }
+        @keyframes ring-shake {
+            0%, 100% { transform: rotate(0); } 25% { transform: rotate(-15deg); } 75% { transform: rotate(15deg); }
+        }
+
+        /* Modal */
+        .modal {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); justify-content: center; align-items: center; z-index: 10;
+        }
+        .modal-content {
+            background: #2c2c2e; padding: 20px; border-radius: 12px; width: 80%; display: flex; flex-direction: column; gap: 12px;
+        }
+        .modal-content select, .modal-content input {
+            background: #1e1e1e; border: 1px solid #3a3a3c; color: white; padding: 8px; border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="window">
+    <div class="header">
+        <div class="window-controls">
+            <div class="dot dot-close"></div>
+            <div class="dot dot-min"></div>
+            <div class="dot dot-max"></div>
+        </div>
+        <div class="nav-tabs">
+            <div class="nav-tab active" onclick="switchTab('world')">世界時鐘</div>
+            <div class="nav-tab" onclick="switchTab('alarm')">鬧鐘</div>
+            <div class="nav-tab" onclick="switchTab('stopwatch')">碼錶</div>
+            <div class="nav-tab" onclick="switchTab('timer')">計時器</div>
+        </div>
+    </div>
+
+    <div class="content">
+        <!-- 1. 世界時鐘 -->
+        <div id="panel-world" class="tab-panel active">
+            <div class="panel-header">
+                <span style="font-size: 18px; font-weight: 600;">世界時鐘</span>
+                <button class="btn btn-secondary" onclick="openAddCityModal()">+ 新增時區</button>
+            </div>
+            <div class="world-clock-list" id="worldClockList"></div>
+        </div>
+
+        <!-- 2. 鬧鐘 -->
+        <div id="panel-alarm" class="tab-panel">
+            <div class="panel-header">
+                <span style="font-size: 18px; font-weight: 600;">鬧鐘設定</span>
+                <button class="btn btn-primary" onclick="openAddAlarmModal()">+ 新增鬧鐘</button>
+            </div>
+            <div class="alarm-list" id="alarmList"></div>
+        </div>
+
+        <!-- 3. 碼錶 -->
+        <div id="panel-stopwatch" class="tab-panel">
+            <div class="stopwatch-display" id="stopwatchDisplay">00:00.00</div>
+            <div class="stopwatch-controls">
+                <button class="btn btn-secondary" id="swLapBtn" onclick="lapOrReset()" disabled>計圈</button>
+                <button class="btn btn-primary" id="swStartBtn" onclick="toggleStopwatch()">開始</button>
+            </div>
+            <div class="laps-list" id="lapsList"></div>
+        </div>
+
+        <!-- 4. 計時器 -->
+        <div id="panel-timer" class="tab-panel">
+            <div class="timer-container">
+                <div class="circle-container">
+                    <svg width="220" height="220">
+                        <circle class="circle-bg" cx="110" cy="110" r="100"></circle>
+                        <circle class="circle-progress" id="timerProgress" cx="110" cy="110" r="100"></circle>
+                    </svg>
+                    <div class="timer-text-group">
+                        <div class="timer-target" id="timerTarget">🔔 --:--</div>
+                        <div class="timer-time" id="timerDisplay">00:00</div>
+                    </div>
+                </div>
+
+                <div class="timer-inputs" id="timerInputs">
+                    <div class="time-input-box">
+                        <input type="number" id="tmHours" min="0" max="23" value="0">
+                        <label>時</label>
+                    </div>
+                    <div class="time-input-box">
+                        <input type="number" id="tmMins" min="0" max="59" value="0">
+                        <label>分</label>
+                    </div>
+                    <div class="time-input-box">
+                        <input type="number" id="tmSecs" min="0" max="59" value="0">
+                        <label>秒</label>
+                    </div>
+                </div>
+
+                <div class="timer-controls">
+                    <button class="btn btn-secondary" onclick="resetTimer()">取消</button>
+                    <button class="btn btn-primary" id="tmStartBtn" onclick="toggleTimer()">開始</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 彈窗：新增城市 -->
+<div class="modal" id="cityModal">
+    <div class="modal-content">
+        <h3>新增城市</h3>
+        <select id="citySelect">
+            <option value="America/Denver|鹽湖城">鹽湖城 (Salt Lake City)</option>
+            <option value="Asia/Taipei|台北">台北 (Taipei)</option>
+            <option value="Asia/Tokyo|東京">東京 (Tokyo)</option>
+            <option value="Europe/London|倫敦">倫敦 (London)</option>
+            <option value="America/Chicago|德州">德州 (Texas)</option>
+            <option value="America/New_York|紐約">紐約 (New York)</option>
+            <option value="America/Los_Angeles|舊金山">舊金山 (San Francisco)</option>
+        </select>
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
+            <button class="btn btn-secondary" onclick="closeModal('cityModal')">取消</button>
+            <button class="btn btn-primary" onclick="addCity()">新增</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 彈窗：鬧鐘響鈴 -->
+<div class="modal" id="ringModal">
+    <div class="modal-content ring-content">
+        <div class="ring-icon">⏰</div>
+        <div class="ring-time" id="ringTime">07:00</div>
+        <div class="ring-label" id="ringLabel">鬧鐘</div>
+        <div class="alarm-repeat" id="ringRepeat" style="margin:-8px 0 12px;"></div>
+        <button class="btn btn-primary ring-stop" onclick="stopRinging()">停止</button>
+    </div>
+</div>
+
+<!-- Modal 彈窗：新增鬧鐘 -->
+<div class="modal" id="alarmModal">
+    <div class="modal-content">
+        <h3>新增鬧鐘</h3>
+        <input type="hidden" id="alarmTimeInput" value="07:00">
+        <div class="time-spinner">
+            <div class="spin-col">
+                <button type="button" class="spin-btn" data-unit="h" data-step="1">▲</button>
+                <div class="spin-value" id="alarmHourVal" tabindex="0" data-unit="h">07</div>
+                <button type="button" class="spin-btn" data-unit="h" data-step="-1">▼</button>
+                <span class="spin-label">時</span>
+            </div>
+            <div class="spin-colon">:</div>
+            <div class="spin-col">
+                <button type="button" class="spin-btn" data-unit="m" data-step="1">▲</button>
+                <div class="spin-value" id="alarmMinVal" tabindex="0" data-unit="m">00</div>
+                <button type="button" class="spin-btn" data-unit="m" data-step="-1">▼</button>
+                <span class="spin-label">分</span>
+            </div>
+        </div>
+
+        <div class="seg" id="repeatSeg">
+            <button type="button" class="seg-btn active" data-mode="once">單次</button>
+            <button type="button" class="seg-btn" data-mode="weekly">每週</button>
+            <button type="button" class="seg-btn" data-mode="date">指定日期</button>
+        </div>
+
+        <div id="repeatWeekly" hidden>
+            <div class="weekdays" id="weekdayBtns">
+                <button type="button" class="wd-btn" data-day="1">一</button>
+                <button type="button" class="wd-btn" data-day="2">二</button>
+                <button type="button" class="wd-btn" data-day="3">三</button>
+                <button type="button" class="wd-btn" data-day="4">四</button>
+                <button type="button" class="wd-btn" data-day="5">五</button>
+                <button type="button" class="wd-btn" data-day="6">六</button>
+                <button type="button" class="wd-btn" data-day="0">日</button>
+            </div>
+            <div class="wd-presets">
+                <button type="button" data-preset="1,2,3,4,5,6,0">每天</button>
+                <button type="button" data-preset="1,2,3,4,5">平日</button>
+                <button type="button" data-preset="6,0">週末</button>
+            </div>
+        </div>
+
+        <div id="repeatDate" hidden>
+            <div class="time-spinner small">
+                <div class="spin-col">
+                    <button type="button" class="spin-btn year" data-unit="y" data-step="1">▲</button>
+                    <div class="spin-value year" id="alarmYearVal" tabindex="0" data-unit="y">2026</div>
+                    <button type="button" class="spin-btn year" data-unit="y" data-step="-1">▼</button>
+                    <span class="spin-label">年</span>
+                </div>
+                <div class="spin-colon">/</div>
+                <div class="spin-col">
+                    <button type="button" class="spin-btn" data-unit="mo" data-step="1">▲</button>
+                    <div class="spin-value" id="alarmMonthVal" tabindex="0" data-unit="mo">01</div>
+                    <button type="button" class="spin-btn" data-unit="mo" data-step="-1">▼</button>
+                    <span class="spin-label">月</span>
+                </div>
+                <div class="spin-colon">/</div>
+                <div class="spin-col">
+                    <button type="button" class="spin-btn" data-unit="d" data-step="1">▲</button>
+                    <div class="spin-value" id="alarmDayVal" tabindex="0" data-unit="d">01</div>
+                    <button type="button" class="spin-btn" data-unit="d" data-step="-1">▼</button>
+                    <span class="spin-label" id="alarmDateWeekday">日</span>
+                </div>
+            </div>
+            <label class="gcal-check">
+                <input type="checkbox" id="alarmGcal" checked>
+                儲存後加入 Google 日曆
+            </label>
+        </div>
+
+        <input type="text" id="alarmLabelInput" placeholder="鬧鐘標籤 (例如：起床)">
+        <select id="alarmSoundSelect">
+            <option value="spring">四季 —《春》(Vivaldi Spring)</option>
+            <option value="classic">經典響鈴 (Classic Beep)</option>
+        </select>
+        <div class="alarm-error" id="alarmError"></div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button class="btn btn-secondary" onclick="closeModal('alarmModal')">取消</button>
+            <button class="btn btn-primary" onclick="addAlarm()">儲存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 切換頁籤 (正確比對按鈕) ---
+    function switchTab(tabName) {
+        const tabs = document.querySelectorAll('.nav-tab');
+        const panels = document.querySelectorAll('.tab-panel');
+
+        tabs.forEach(t => t.classList.remove('active'));
+        panels.forEach(p => p.classList.remove('active'));
+
+        const targetPanel = document.getElementById(`panel-${tabName}`);
+        if (targetPanel) targetPanel.classList.add('active');
+
+        // 更新頂部 Active tab 樣式
+        const tabMap = { 'world': 0, 'alarm': 1, 'stopwatch': 2, 'timer': 3 };
+        if (tabs[tabMap[tabName]]) {
+            tabs[tabMap[tabName]].classList.add('active');
+        }
+    }
+
+    // --- 音效播放 (四季 - 春) ---
+    function playAlarmSound(soundType = 'spring') {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (soundType === 'spring') {
+            const notes = [
+                { f: 659.25, d: 0.25 }, { f: 659.25, d: 0.25 }, { f: 659.25, d: 0.25 },
+                { f: 587.33, d: 0.12 }, { f: 523.25, d: 0.12 },
+                { f: 587.33, d: 0.25 }, { f: 659.25, d: 0.25 }, { f: 440.00, d: 0.5 }
+            ];
+            let currTime = audioCtx.currentTime;
+            notes.forEach(note => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(note.f, currTime);
+                gain.gain.setValueAtTime(0.3, currTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, currTime + note.d - 0.02);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(currTime);
+                osc.stop(currTime + note.d);
+                currTime += note.d;
+            });
+            const dur = currTime - audioCtx.currentTime;
+            setTimeout(() => audioCtx.close(), (dur + 0.5) * 1000);
+            return dur;
+        }
+        // 經典響鈴：嗶嗶嗶 ×2
+        let t = audioCtx.currentTime;
+        for (let i = 0; i < 6; i++) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(880, t);
+            gain.gain.setValueAtTime(0.15, t);
+            gain.gain.setValueAtTime(0, t + 0.12);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(t);
+            osc.stop(t + 0.13);
+            t += (i === 2) ? 0.5 : 0.2;
+        }
+        const dur = t - audioCtx.currentTime;
+        setTimeout(() => audioCtx.close(), (dur + 0.5) * 1000);
+        return dur;
+    }
+
+    // --- 1. 世界時鐘 ---
+    // --- 儲存：城市與鬧鐘存在本機，App 重開或重開機都還在 ---
+    function loadSaved(key, fallback) {
+        try {
+            const v = JSON.parse(localStorage.getItem(key));
+            return Array.isArray(v) ? v : fallback;
+        } catch { return fallback; }
+    }
+    function save(key, value) {
+        try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+    }
+
+    let cities = loadSaved('clock.cities', [
+        { zone: 'America/Denver', name: '鹽湖城' },
+        { zone: 'Asia/Taipei', name: '台北' },
+        { zone: 'America/New_York', name: '紐約' },
+        { zone: 'America/Chicago', name: '德州' }
+    ]);
+    const saveCities = () => save('clock.cities', cities);
+
+    function updateWorldClocks() {
+        const container = document.getElementById('worldClockList');
+        if (!container) return;
+        container.innerHTML = '';
+        const now = new Date();
+
+        cities.forEach(c => {
+            const timeStr = now.toLocaleTimeString('zh-TW', { timeZone: c.zone, hour12: false, hour: '2-digit', minute: '2-digit' });
+            const targetDate = new Date(now.toLocaleString('en-US', { timeZone: c.zone }));
+            const diffHours = Math.round((targetDate - now) / 3600000);
+            const offsetStr = diffHours === 0 ? '與本地相同' : `${diffHours > 0 ? '+' : ''}${diffHours} 小時`;
+
+            const card = document.createElement('div');
+            card.className = 'clock-card';
+            card.innerHTML = `
+                <div>
+                    <div class="city-name">${c.name}</div>
+                    <div class="time-offset">${offsetStr}</div>
+                </div>
+                <div class="digital-time">${timeStr}</div>
+            `;
+            container.appendChild(card);
+        });
+    }
+    setInterval(updateWorldClocks, 1000);
+    updateWorldClocks();
+
+    function openAddCityModal() { document.getElementById('cityModal').style.display = 'flex'; }
+    function addCity() {
+        const val = document.getElementById('citySelect').value.split('|');
+        if (!cities.find(c => c.zone === val[0])) {
+            cities.push({ zone: val[0], name: val[1] });
+            saveCities();
+            updateWorldClocks();
+        }
+        closeModal('cityModal');
+    }
+
+    // --- 2. 鬧鐘 ---
+    // repeat: 'once'   單次（下一次到這個時間就響，響完自動關閉）
+    //         'weekly' 每週（days: 0=日 … 6=六）
+    //         'date'   指定日期（date: 'YYYY-MM-DD'，響完自動關閉）
+    let alarms = loadSaved('clock.alarms', [
+        { id: 1, time: '07:00', label: '早安鬧鐘', sound: 'spring', enabled: true, repeat: 'weekly', days: [1, 2, 3, 4, 5] }
+    ]);
+    const saveAlarms = () => save('clock.alarms', alarms);
+
+    const WD = ['日', '一', '二', '三', '四', '五', '六'];
+    const pad2 = n => String(n).padStart(2, '0');
+    const escapeHtml = str => String(str).replace(/[&<>"']/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    function repeatText(a) {
+        if (a.repeat === 'weekly') {
+            const key = [...a.days].sort().join(',');
+            if (key === '0,1,2,3,4,5,6') return '每天';
+            if (key === '1,2,3,4,5') return '平日（週一～週五）';
+            if (key === '0,6') return '週末';
+            const ordered = [...a.days].sort((x, y) => ((x + 6) % 7) - ((y + 6) % 7)); // 週一排最前
+            return '每週' + ordered.map(x => WD[x]).join('、');
+        }
+        if (a.repeat === 'date') {
+            const [y, m, d] = a.date.split('-').map(Number);
+            return `${y}/${pad2(m)}/${pad2(d)}（週${WD[new Date(y, m - 1, d).getDay()]}）`;
+        }
+        return '單次';
+    }
+
+    function sortKey(a) { return (a.repeat === 'date' ? a.date : '0') + ' ' + a.time; }
+
+    function renderAlarms() {
+        const container = document.getElementById('alarmList');
+        if (!container) return;
+        container.innerHTML = '';
+        if (alarms.length === 0) {
+            container.innerHTML = '<div class="alarm-empty">還沒有鬧鐘，按「+ 新增鬧鐘」建立一個</div>';
+            return;
+        }
+        [...alarms].sort((a, b) => sortKey(a).localeCompare(sortKey(b))).forEach(a => {
+            const card = document.createElement('div');
+            card.className = 'alarm-card' + (a.enabled ? '' : ' off');
+            card.innerHTML = `
+                <div>
+                    <div class="alarm-time">${a.time}</div>
+                    <div class="alarm-label">${escapeHtml(a.label)} · ${a.sound === 'spring' ? '四季—春' : '經典響鈴'}</div>
+                    <div class="alarm-repeat">${repeatText(a)}${a.repeat === 'date'
+                        ? `<button class="gcal-link" onclick="openGoogleCalendar(alarms.find(x => x.id === ${a.id}))">📅 加到 Google 日曆</button>`
+                        : ''}</div>
+                </div>
+                <div class="alarm-actions">
+                    <label class="switch">
+                        <input type="checkbox" ${a.enabled ? 'checked' : ''} onchange="toggleAlarm(${a.id})">
+                        <span class="slider"></span>
+                    </label>
+                    <button class="alarm-del" title="刪除鬧鐘" onclick="deleteAlarm(${a.id})">✕</button>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    }
+    renderAlarms();
+
+    // --- Google 日曆：用瀏覽器打開「新增活動」頁，內容已填好，按儲存即可 ---
+    function googleCalendarUrl(a) {
+        const [y, mo, d] = a.date.split('-').map(Number);
+        const [h, m] = a.time.split(':').map(Number);
+        const start = new Date(y, mo - 1, d, h, m);
+        const end = new Date(start.getTime() + 15 * 60000);
+        const fmt = t => `${t.getFullYear()}${pad2(t.getMonth() + 1)}${pad2(t.getDate())}T${pad2(t.getHours())}${pad2(t.getMinutes())}00`;
+        const params = new URLSearchParams({
+            action: 'TEMPLATE',
+            text: '⏰ ' + a.label,
+            dates: `${fmt(start)}/${fmt(end)}`,
+            ctz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            details: '由「時鐘」App 建立的鬧鐘',
+        });
+        return 'https://calendar.google.com/calendar/render?' + params.toString();
+    }
+    function openGoogleCalendar(a) {
+        if (a && a.repeat === 'date') window.open(googleCalendarUrl(a), '_blank');
+    }
+
+    function deleteAlarm(id) {
+        if (ringing && ringing.alarm.id === id) stopRinging();
+        alarms = alarms.filter(a => a.id !== id);
+        saveAlarms();
+        renderAlarms();
+    }
+
+    // --- 鬧鐘時間／日期轉輪：▲▼ 按鈕（按住連續）、鍵盤上下鍵、滑鼠滾輪 ---
+    let alarmH = 7, alarmM = 0, alarmY = 2026, alarmMo = 1, alarmD = 1;
+    let repeatMode = 'once', selectedDays = new Set();
+    const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
+
+    function renderAlarmSpinner() {
+        document.getElementById('alarmHourVal').textContent = pad2(alarmH);
+        document.getElementById('alarmMinVal').textContent = pad2(alarmM);
+        document.getElementById('alarmTimeInput').value = `${pad2(alarmH)}:${pad2(alarmM)}`;
+        document.getElementById('alarmYearVal').textContent = alarmY;
+        document.getElementById('alarmMonthVal').textContent = pad2(alarmMo);
+        document.getElementById('alarmDayVal').textContent = pad2(alarmD);
+        document.getElementById('alarmDateWeekday').textContent =
+            '日（週' + WD[new Date(alarmY, alarmMo - 1, alarmD).getDay()] + '）';
+        document.getElementById('alarmError').textContent = '';
+    }
+    function stepAlarm(unit, step) {
+        if (unit === 'h') alarmH = (alarmH + step + 24) % 24;
+        else if (unit === 'm') alarmM = (alarmM + step + 60) % 60;
+        else if (unit === 'y') alarmY = Math.max(new Date().getFullYear(), alarmY + step);
+        else if (unit === 'mo') alarmMo = ((alarmMo - 1 + step + 12) % 12) + 1;
+        else if (unit === 'd') {
+            const n = daysInMonth(alarmY, alarmMo);
+            alarmD = ((alarmD - 1 + step + n) % n) + 1;
+        }
+        alarmD = Math.min(alarmD, daysInMonth(alarmY, alarmMo));
+        renderAlarmSpinner();
+    }
+    document.querySelectorAll('#alarmModal .spin-btn').forEach(btn => {
+        let holdTimer = null, repeatTimer = null;
+        const stop = () => { clearTimeout(holdTimer); clearInterval(repeatTimer); };
+        btn.addEventListener('mousedown', () => {
+            stepAlarm(btn.dataset.unit, +btn.dataset.step);
+            holdTimer = setTimeout(() => {
+                repeatTimer = setInterval(() => stepAlarm(btn.dataset.unit, +btn.dataset.step), 80);
+            }, 400);
+        });
+        btn.addEventListener('mouseup', stop);
+        btn.addEventListener('mouseleave', stop);
+    });
+    document.querySelectorAll('#alarmModal .spin-value').forEach(el => {
+        el.addEventListener('keydown', e => {
+            if (e.key === 'ArrowUp') { e.preventDefault(); stepAlarm(el.dataset.unit, 1); }
+            if (e.key === 'ArrowDown') { e.preventDefault(); stepAlarm(el.dataset.unit, -1); }
+        });
+        el.addEventListener('wheel', e => {
+            e.preventDefault();
+            stepAlarm(el.dataset.unit, e.deltaY < 0 ? 1 : -1);
+        }, { passive: false });
+    });
+
+    // 重複方式：單次／每週／指定日期
+    function setRepeatMode(mode) {
+        repeatMode = mode;
+        document.querySelectorAll('#repeatSeg .seg-btn').forEach(b =>
+            b.classList.toggle('active', b.dataset.mode === mode));
+        document.getElementById('repeatWeekly').hidden = mode !== 'weekly';
+        document.getElementById('repeatDate').hidden = mode !== 'date';
+        document.getElementById('alarmError').textContent = '';
+    }
+    document.querySelectorAll('#repeatSeg .seg-btn').forEach(b =>
+        b.addEventListener('click', () => setRepeatMode(b.dataset.mode)));
+
+    function renderWeekdays() {
+        document.querySelectorAll('#weekdayBtns .wd-btn').forEach(b =>
+            b.classList.toggle('active', selectedDays.has(+b.dataset.day)));
+        document.getElementById('alarmError').textContent = '';
+    }
+    document.querySelectorAll('#weekdayBtns .wd-btn').forEach(b => b.addEventListener('click', () => {
+        const d = +b.dataset.day;
+        selectedDays.has(d) ? selectedDays.delete(d) : selectedDays.add(d);
+        renderWeekdays();
+    }));
+    document.querySelectorAll('.wd-presets button').forEach(b => b.addEventListener('click', () => {
+        selectedDays = new Set(b.dataset.preset.split(',').map(Number));
+        renderWeekdays();
+    }));
+
+    function openAddAlarmModal() {
+        const now = new Date();
+        alarmH = 7; alarmM = 0;
+        alarmY = now.getFullYear(); alarmMo = now.getMonth() + 1; alarmD = now.getDate();
+        selectedDays = new Set([1, 2, 3, 4, 5]);
+        setRepeatMode('once');
+        renderWeekdays();
+        renderAlarmSpinner();
+        document.getElementById('alarmLabelInput').value = '';
+        document.getElementById('alarmModal').style.display = 'flex';
+        document.getElementById('alarmHourVal').focus();
+    }
+    function addAlarm() {
+        const time = document.getElementById('alarmTimeInput').value;
+        const label = document.getElementById('alarmLabelInput').value.trim() || '鬧鐘';
+        const sound = document.getElementById('alarmSoundSelect').value;
+        const err = document.getElementById('alarmError');
+        const alarm = { id: Date.now(), time, label, sound, enabled: true, repeat: repeatMode };
+
+        if (repeatMode === 'weekly') {
+            if (selectedDays.size === 0) { err.textContent = '請至少選一天'; return; }
+            alarm.days = [...selectedDays];
+        }
+        if (repeatMode === 'date') {
+            const when = new Date(alarmY, alarmMo - 1, alarmD, alarmH, alarmM);
+            if (when <= new Date()) { err.textContent = '這個日期時間已經過去了，請選未來的時間'; return; }
+            alarm.date = `${alarmY}-${pad2(alarmMo)}-${pad2(alarmD)}`;
+        }
+        alarms.push(alarm);
+        saveAlarms();
+        if (repeatMode === 'date' && document.getElementById('alarmGcal').checked) openGoogleCalendar(alarm);
+        renderAlarms();
+        closeModal('alarmModal');
+    }
+
+    // --- 鬧鐘響鈴：時間到播鈴聲並念出標籤，按「停止」或響滿 1 分鐘後停止 ---
+    let ringing = null;      // { alarm, timer, stopAt }
+    let lastFiredKey = '';   // 避免同一分鐘重複觸發
+
+    function pickVoice() {
+        const voices = speechSynthesis.getVoices();
+        return voices.find(v => v.lang === 'zh-TW') ||
+               voices.find(v => v.lang.startsWith('zh')) || null;
+    }
+    speechSynthesis.getVoices(); // 預先載入語音清單
+
+    function speakLabel(text) {
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        const v = pickVoice();
+        if (v) u.voice = v;
+        u.lang = v ? v.lang : 'zh-TW';
+        u.rate = 0.95;
+        speechSynthesis.speak(u);
+        return new Promise(resolve => { u.onend = resolve; u.onerror = resolve; });
+    }
+
+    async function ringCycle() {
+        if (!ringing) return;
+        const dur = playAlarmSound(ringing.alarm.sound) || 2;
+        await new Promise(r => setTimeout(r, dur * 1000 + 300));
+        if (!ringing) return;
+        await speakLabel(ringing.alarm.label);
+        if (!ringing) return;
+        if (Date.now() >= ringing.stopAt) { stopRinging(); return; }
+        ringing.timer = setTimeout(ringCycle, 1500);
+    }
+
+    function startRinging(alarm) {
+        if (ringing) stopRinging();
+        ringing = { alarm, timer: null, stopAt: Date.now() + 60000 };
+        document.getElementById('ringTime').textContent = alarm.time;
+        document.getElementById('ringLabel').textContent = alarm.label;
+        document.getElementById('ringRepeat').textContent = repeatText(alarm);
+        document.getElementById('ringModal').style.display = 'flex';
+        window.__clockApp?.pin();  // App 版：跳出視窗並保持顯示
+        ringCycle();
+    }
+
+    function stopRinging() {
+        if (!ringing) return;
+        clearTimeout(ringing.timer);
+        ringing = null;
+        speechSynthesis.cancel();
+        document.getElementById('ringModal').style.display = 'none';
+        window.__clockApp?.unpin();
+    }
+
+    function isDue(a, now, hhmm) {
+        if (!a.enabled || a.time !== hhmm) return false;
+        if (a.repeat === 'weekly') return a.days.includes(now.getDay());
+        if (a.repeat === 'date') {
+            return a.date === `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+        }
+        return true; // 單次：下一次到這個時間就響
+    }
+
+    function checkAlarms() {
+        const now = new Date();
+        const hhmm = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+        const key = now.toDateString() + ' ' + hhmm;
+        if (key === lastFiredKey) return;
+        const due = alarms.find(a => isDue(a, now, hhmm));
+        if (!due) return;
+        lastFiredKey = key;
+        // 單次與指定日期：響過就自動關閉
+        if (due.repeat === 'once' || due.repeat === 'date') { due.enabled = false; saveAlarms(); renderAlarms(); }
+        startRinging(due);
+    }
+    setInterval(checkAlarms, 1000);
+
+    function toggleAlarm(id) {
+        const alarm = alarms.find(a => a.id === id);
+        if (!alarm) return;
+        alarm.enabled = !alarm.enabled;
+        saveAlarms();
+        renderAlarms();
+    }
+
+    // --- 3. 碼錶 ---
+    let swInterval = null, swElapsed = 0, swRunning = false, laps = [];
+    function formatStopwatch(ms) {
+        const m = Math.floor(ms / 60000);
+        const s = Math.floor((ms % 60000) / 1000);
+        const cs = Math.floor((ms % 1000) / 10);
+        return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`;
+    }
+
+    // 左鍵：執行中 =「計圈」，暫停中 =「重設」
+    function updateStopwatchButtons() {
+        const lapBtn = document.getElementById('swLapBtn');
+        if (swRunning) { lapBtn.textContent = '計圈'; lapBtn.disabled = false; }
+        else if (swElapsed > 0) { lapBtn.textContent = '重設'; lapBtn.disabled = false; }
+        else { lapBtn.textContent = '計圈'; lapBtn.disabled = true; }
+        document.getElementById('swStartBtn').textContent =
+            swRunning ? '暫停' : (swElapsed > 0 ? '繼續' : '開始');
+    }
+
+    function toggleStopwatch() {
+        if (!swRunning) {
+            const start = Date.now() - swElapsed;
+            swInterval = setInterval(() => {
+                swElapsed = Date.now() - start;
+                document.getElementById('stopwatchDisplay').textContent = formatStopwatch(swElapsed);
+            }, 10);
+            swRunning = true;
+        } else {
+            clearInterval(swInterval);
+            swRunning = false;
+        }
+        updateStopwatchButtons();
+    }
+
+    function lapOrReset() {
+        if (swRunning) lapStopwatch();
+        else resetStopwatch();
+    }
+
+    // 計圈：記下每一圈花了多久（分段時間）和到那一圈為止的總時間
+    function lapStopwatch() {
+        if (!swRunning) return;
+        laps.push(swElapsed);
+        renderLaps();
+    }
+
+    function renderLaps() {
+        const container = document.getElementById('lapsList');
+        if (laps.length === 0) {
+            container.innerHTML = '<div class="lap-hint">執行中按「計圈」可以記下每一圈的時間<br>（例如跑操場每一圈、每一題各花多久）</div>';
+            return;
+        }
+        const splits = laps.map((t, i) => t - (i ? laps[i - 1] : 0));
+        const min = Math.min(...splits), max = Math.max(...splits);
+        const rows = splits.map((sp, i) => {
+            let cls = 'lap-item';
+            if (splits.length >= 2 && sp === min) cls += ' fastest';
+            else if (splits.length >= 2 && sp === max) cls += ' slowest';
+            return `<div class="${cls}"><span>第 ${i + 1} 圈</span><span>${formatStopwatch(sp)}</span><span>${formatStopwatch(laps[i])}</span></div>`;
+        }).reverse().join('');
+        container.innerHTML = '<div class="lap-item head"><span>圈數</span><span>本圈時間</span><span>累計時間</span></div>' + rows;
+    }
+
+    function resetStopwatch() {
+        clearInterval(swInterval);
+        swRunning = false; swElapsed = 0; laps = [];
+        document.getElementById('stopwatchDisplay').textContent = formatStopwatch(0);
+        renderLaps();
+        updateStopwatchButtons();
+    }
+    renderLaps();
+
+    // --- 4. 計時器 ---
+    let tmInterval = null, tmTotal = 0, tmRemaining = 0, tmRunning = false;
+    const circle = document.getElementById('timerProgress');
+    const radius = circle.r.baseVal.value;
+    const circumference = 2 * Math.PI * radius;
+    circle.style.strokeDasharray = `${circumference} ${circumference}`;
+
+    function setProgress(percent) {
+        circle.style.strokeDashoffset = circumference - (percent * circumference);
+    }
+
+    function toggleTimer() {
+        if (!tmRunning) {
+            if (tmRemaining <= 0) {
+                const h = parseInt(document.getElementById('tmHours').value) || 0;
+                const m = parseInt(document.getElementById('tmMins').value) || 0;
+                const s = parseInt(document.getElementById('tmSecs').value) || 0;
+                tmTotal = h * 3600 + m * 60 + s;
+                tmRemaining = tmTotal;
+            }
+            if (tmTotal <= 0) return;
+
+            tmRunning = true;
+            document.getElementById('tmStartBtn').textContent = '暫停';
+            document.getElementById('timerInputs').style.display = 'none';
+
+            tmInterval = setInterval(() => {
+                tmRemaining--;
+                document.getElementById('timerDisplay').textContent = formatTimer(tmRemaining);
+                setProgress(tmRemaining / tmTotal);
+
+                if (tmRemaining <= 0) {
+                    clearInterval(tmInterval);
+                    playAlarmSound('spring');
+                    alert('⏳ 計時結束！');
+                    resetTimer();
+                }
+            }, 1000);
+        } else {
+            clearInterval(tmInterval);
+            tmRunning = false;
+            document.getElementById('tmStartBtn').textContent = '繼續';
+        }
+    }
+
+    function formatTimer(sec) {
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        const mmss = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        return h > 0 ? `${String(h).padStart(2,'0')}:${mmss}` : mmss;
+    }
+
+    // 調整時/分/秒時，上方顯示即時跟著變
+    function updateTimerPreview() {
+        if (tmRunning || tmRemaining > 0) return;
+        const h = parseInt(document.getElementById('tmHours').value) || 0;
+        const m = parseInt(document.getElementById('tmMins').value) || 0;
+        const s = parseInt(document.getElementById('tmSecs').value) || 0;
+        document.getElementById('timerDisplay').textContent = formatTimer(h * 3600 + m * 60 + s);
+    }
+    ['tmHours', 'tmMins', 'tmSecs'].forEach(id =>
+        document.getElementById(id).addEventListener('input', updateTimerPreview));
+
+    function resetTimer() {
+        clearInterval(tmInterval);
+        tmRunning = false; tmTotal = 0; tmRemaining = 0;
+        updateTimerPreview();
+        setProgress(1);
+        document.getElementById('tmStartBtn').textContent = '開始';
+        document.getElementById('timerInputs').style.display = 'flex';
+    }
+
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    setProgress(1);
+</script>
+
+</body>
+</html>
