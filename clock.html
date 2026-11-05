@@ -489,6 +489,10 @@
             <option value="spring">四季 —《春》(Vivaldi Spring)</option>
             <option value="classic">經典響鈴 (Classic Beep)</option>
         </select>
+        <label class="gcal-check">
+            <input type="checkbox" id="alarmEarly">
+            提前 10 分鐘先響一次
+        </label>
         <div class="alarm-error" id="alarmError"></div>
         <div style="display:flex; gap:8px; justify-content:flex-end;">
             <button class="btn btn-secondary" onclick="closeModal('alarmModal')">取消</button>
@@ -961,6 +965,7 @@
         { id: 1, time: '07:00', label: '早安鬧鐘', sound: 'spring', enabled: true, repeat: 'weekly', days: [1, 2, 3, 4, 5] }
     ]);
     const saveAlarms = () => save('clock.alarms', alarms);
+    const EARLY_MIN = 10;   // 「提前提醒」的分鐘數；鬧鐘資料裡存 early: 10
 
     const WD = ['日', '一', '二', '三', '四', '五', '六'];
     const pad2 = n => String(n).padStart(2, '0');
@@ -1000,7 +1005,7 @@
                 <div class="alarm-info" title="點一下修改這個鬧鐘" onclick="if (event.target.tagName !== 'BUTTON') openEditAlarmModal(${a.id})">
                     <div class="alarm-time">${a.time}</div>
                     <div class="alarm-label">${escapeHtml(a.label)} · ${a.sound === 'spring' ? '四季—春' : '經典響鈴'}</div>
-                    <div class="alarm-repeat">${repeatText(a)}${a.repeat === 'date'
+                    <div class="alarm-repeat">${repeatText(a)}${a.early ? ` · 提前 ${a.early} 分鐘提醒` : ''}${a.repeat === 'date'
                         ? `<button class="gcal-link" onclick="openGoogleCalendar(alarms.find(x => x.id === ${a.id}))">📅 加到 Google 日曆</button>`
                         : ''}</div>
                 </div>
@@ -1138,6 +1143,7 @@
         document.getElementById('alarmModalTitle').textContent = '新增鬧鐘';
         document.getElementById('alarmLabelInput').value = '';
         document.getElementById('alarmGcal').checked = true;
+        document.getElementById('alarmEarly').checked = false;
         document.getElementById('alarmModal').style.display = 'flex';
         document.getElementById('alarmHourVal').focus();
     }
@@ -1157,6 +1163,7 @@
         document.getElementById('alarmModalTitle').textContent = '修改鬧鐘';
         document.getElementById('alarmLabelInput').value = a.label;
         document.getElementById('alarmSoundSelect').value = a.sound || 'spring';
+        document.getElementById('alarmEarly').checked = !!a.early;
         // 修改時預設不再開 Google 日曆（避免重複建立活動），需要的話自己勾
         document.getElementById('alarmGcal').checked = false;
     }
@@ -1168,6 +1175,7 @@
         const err = document.getElementById('alarmError');
         // 修改後一律重新開啟（例如已經響過、自動關閉的單次鬧鐘，改了時間就會再響）
         const alarm = { id: editingAlarmId ?? Date.now(), time, label, sound, enabled: true, repeat: repeatMode };
+        if (document.getElementById('alarmEarly').checked) alarm.early = EARLY_MIN;
 
         if (repeatMode === 'weekly') {
             if (selectedDays.size === 0) { err.textContent = '請至少選一天'; return; }
@@ -1219,18 +1227,22 @@
         const dur = playAlarmSound(ringing.alarm.sound) || 2;
         await new Promise(r => setTimeout(r, dur * 1000 + 300));
         if (!ringing) return;
-        await speakLabel(ringing.alarm.label);
+        await speakLabel(ringing.speech);
         if (!ringing) return;
         if (Date.now() >= ringing.stopAt) { stopRinging(); return; }
         ringing.timer = setTimeout(ringCycle, 1500);
     }
 
-    function startRinging(alarm) {
+    // early：這次是「提前 N 分鐘」的預告，不是正式鬧鐘
+    function startRinging(alarm, early = 0) {
         if (ringing) stopRinging();
-        ringing = { alarm, timer: null, stopAt: Date.now() + 60000 };
+        const speech = early ? `還有 ${early} 分鐘，${alarm.label}` : alarm.label;
+        ringing = { alarm, early, speech, timer: null, stopAt: Date.now() + 60000 };
         document.getElementById('ringTime').textContent = alarm.time;
         document.getElementById('ringLabel').textContent = alarm.label;
-        document.getElementById('ringRepeat').textContent = repeatText(alarm);
+        document.getElementById('ringRepeat').textContent = early
+            ? `⏳ 提前 ${early} 分鐘提醒（${alarm.time} 會再響一次）`
+            : repeatText(alarm);
         document.getElementById('ringModal').style.display = 'flex';
         window.__clockApp?.pin();  // App 版：跳出視窗並保持顯示
         ringCycle();
@@ -1260,7 +1272,16 @@
         const key = now.toDateString() + ' ' + hhmm;
         if (key === lastFiredKey) return;
         const due = alarms.find(a => isDue(a, now, hhmm));
-        if (!due) return;
+        if (!due) {
+            // 用「N 分鐘後」的日期和星期判斷，跨過午夜也正確（例如 00:05 的鬧鐘在前一天 23:55 預告）
+            const soon = alarms.find(a => {
+                if (!a.early) return false;
+                const later = new Date(now.getTime() + a.early * 60000);
+                return isDue(a, later, `${pad2(later.getHours())}:${pad2(later.getMinutes())}`);
+            });
+            if (soon) { lastFiredKey = key; startRinging(soon, soon.early); }
+            return;
+        }
         lastFiredKey = key;
         // 單次與指定日期：響過就自動關閉
         if (due.repeat === 'once' || due.repeat === 'date') { due.enabled = false; saveAlarms(); renderAlarms(); }
