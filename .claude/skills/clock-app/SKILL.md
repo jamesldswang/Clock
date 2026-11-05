@@ -33,9 +33,9 @@ description: 修改、測試、打包「時鐘」桌面 App（C:\Users\user\Cloc
 5. **打包**：`npm run dist`
 6. **重新啟動 App**：使用者平常用的是打包版。
    ```bash
-   powershell -NoProfile -Command "Start-Process 'C:\Users\user\ClockApp\dist\Clock-1.0.1-win-x64\時鐘.exe'"
+   powershell -NoProfile -Command "Start-Process 'C:\Users\user\ClockApp\dist\Clock-1.1.0-win-x64\時鐘.exe'"
    ```
-   路徑裡的 `1.0.1` 要換成現在的版號。
+   路徑裡的 `1.1.0` 要換成現在的版號。
 
 版號在 `package.json` 的 `version`。使用者沒說要改就不要動；改了之後，視窗右上角、系統匣選單和 zip 檔名都會自動跟著變。
 
@@ -98,10 +98,10 @@ cd /c/Users/user/ClockApp
 
 ## 功能清單（改之前先看有沒有現成的函式可以用）
 
-- **世界時鐘**：`cities`、`updateWorldClocks()`、`addCity()`。可以選的城市在 `<select id="citySelect">`。德州用的是 `America/Chicago`。
+- **世界時鐘**：`cities`、`updateWorldClocks()`（清單變動時重建卡片）、`tickWorldClocks()`（每秒只更新時間文字，不重建，否則 ✕ 按鈕會按不到）、`addCity()`、`deleteCity(i)`。可以選的城市在 `CITY_GROUPS`（每筆 `[城市, 國家或省份, 英文名, IANA 時區]`，依地區分組；`buildCitySelect()` 產生選項、`filterCities()` 搜尋）。重複判斷是「時區＋名稱」，因為很多中國城市都是 `Asia/Shanghai`。加新城市後要確認時區名稱有效（`new Intl.DateTimeFormat('en', { timeZone })` 不會丟錯）。德州用的是 `America/Chicago`。
 - **鬧鐘**：
   - 清單：`renderAlarms()`、`repeatText(a)`、`deleteAlarm(id)`、`toggleAlarm(id)`
-  - 新增：`openAddAlarmModal()`、`addAlarm()`、`setRepeatMode(mode)`
+  - 新增：`openAddAlarmModal()`、`openEditAlarmModal(id)`（修改：同一個視窗，`editingAlarmId` 不是 null 時 `addAlarm()` 會取代原本那筆、保留 id、重新開啟）、`addAlarm()`、`setRepeatMode(mode)`
   - 到點判斷：`isDue(a, now, hhmm)`、`checkAlarms()`（每秒執行一次）
   - 響鈴：`startRinging()`、`stopRinging()`、`ringCycle()`。流程是「鈴聲 → 用 `speechSynthesis` 念標籤（優先用 zh-TW 語音）」，一直重複，直到按停止或滿 1 分鐘。
   - Google 日曆：`googleCalendarUrl(a)`、`openGoogleCalendar(a)`。用的是一鍵加入的網址，**是單向的**，App 裡刪除或修改鬧鐘不會同步到日曆。使用者選了這個做法；完整的 API 同步要先到 Google Cloud 設定 OAuth，所以當時沒有做。

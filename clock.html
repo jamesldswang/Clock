@@ -131,6 +131,10 @@
         .city-name { font-size: 18px; font-weight: 600; }
         .time-offset { font-size: 12px; color: #8e8e93; margin-top: 2px; }
         .digital-time { font-size: 26px; font-weight: 300; }
+        .city-info { min-width: 0; }
+        .city-right { display: flex; align-items: center; gap: 12px; }
+        .city-del { flex-shrink: 0; opacity: 0.35; transition: opacity .15s; }
+        .clock-card:hover .city-del, .city-del:focus-visible { opacity: 1; }
 
         /* 鬧鐘 */
         .alarm-list { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
@@ -152,6 +156,12 @@
             color: #ff453a; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center;
         }
         .alarm-del:hover { background: #ff453a; color: #fff; }
+        .alarm-edit {
+            width: 30px; height: 30px; border: none; border-radius: 50%; background: #3a3a3c;
+            color: #ff9f0a; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .alarm-edit:hover { background: #ff9f0a; color: #fff; }
+        .alarm-info { cursor: pointer; flex: 1; min-width: 0; }
         .alarm-empty { text-align: center; color: #636366; font-size: 14px; padding: 40px 0; }
 
         /* 新增鬧鐘：重複方式 */
@@ -279,6 +289,16 @@
         .modal-content select, .modal-content input {
             background: #1e1e1e; border: 1px solid #3a3a3c; color: white; padding: 8px; border-radius: 6px;
         }
+
+        /* 新增城市：搜尋 + 清單 */
+        #citySelect { height: 260px; padding: 4px; }
+        #citySelect optgroup { color: #ff9f0a; font-style: normal; font-weight: 600; }
+        #citySelect option { color: #fff; padding: 4px 6px; font-weight: 400; border-radius: 4px; }
+        #citySelect option:checked { background: #0a84ff; }
+        #citySelect::-webkit-scrollbar { width: 8px; }
+        #citySelect::-webkit-scrollbar-track { background: transparent; }
+        #citySelect::-webkit-scrollbar-thumb { background: #48484a; border-radius: 4px; }
+        .city-hint { font-size: 12px; color: #8e8e93; margin-top: -4px; }
     </style>
 </head>
 <body>
@@ -369,16 +389,11 @@
 <div class="modal" id="cityModal">
     <div class="modal-content">
         <h3>新增城市</h3>
-        <select id="citySelect">
-            <option value="America/Denver|鹽湖城">鹽湖城 (Salt Lake City)</option>
-            <option value="Asia/Taipei|台北">台北 (Taipei)</option>
-            <option value="Asia/Tokyo|東京">東京 (Tokyo)</option>
-            <option value="Europe/London|倫敦">倫敦 (London)</option>
-            <option value="America/Chicago|德州">德州 (Texas)</option>
-            <option value="America/New_York|紐約">紐約 (New York)</option>
-            <option value="America/Los_Angeles|舊金山">舊金山 (San Francisco)</option>
-        </select>
-        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
+        <input type="text" id="citySearch" placeholder="搜尋城市或國家（中文或英文）" autocomplete="off">
+        <!-- 選項由 CITY_GROUPS 產生（見 <script> 裡的城市清單） -->
+        <select id="citySelect" size="10"></select>
+        <div class="city-hint" id="cityHint">雙擊城市可以直接新增</div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
             <button class="btn btn-secondary" onclick="closeModal('cityModal')">取消</button>
             <button class="btn btn-primary" onclick="addCity()">新增</button>
         </div>
@@ -399,7 +414,7 @@
 <!-- Modal 彈窗：新增鬧鐘 -->
 <div class="modal" id="alarmModal">
     <div class="modal-content">
-        <h3>新增鬧鐘</h3>
+        <h3 id="alarmModalTitle">新增鬧鐘</h3>
         <input type="hidden" id="alarmTimeInput" value="07:00">
         <div class="time-spinner">
             <div class="spin-col">
@@ -568,38 +583,370 @@
     ]);
     const saveCities = () => save('clock.cities', cities);
 
+    // 城市卡片只在清單變動時重建；每秒只更新時間文字（不然 ✕ 按鈕每秒被換掉，會按不到）
     function updateWorldClocks() {
         const container = document.getElementById('worldClockList');
         if (!container) return;
         container.innerHTML = '';
+        if (cities.length === 0) {
+            container.innerHTML = '<div class="alarm-empty">還沒有城市，按「+ 新增時區」加入一個</div>';
+            return;
+        }
+        cities.forEach((c, i) => {
+            const card = document.createElement('div');
+            card.className = 'clock-card';
+            card.innerHTML = `
+                <div class="city-info">
+                    <div class="city-name">${escapeHtml(c.name)}</div>
+                    <div class="time-offset"></div>
+                </div>
+                <div class="city-right">
+                    <div class="digital-time"></div>
+                    <button class="alarm-del city-del" title="移除這個城市" onclick="deleteCity(${i})">✕</button>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+        tickWorldClocks();
+    }
+    function tickWorldClocks() {
         const now = new Date();
-
-        cities.forEach(c => {
+        document.querySelectorAll('#worldClockList .clock-card').forEach((card, i) => {
+            const c = cities[i];
+            if (!c) return;
             const timeStr = now.toLocaleTimeString('zh-TW', { timeZone: c.zone, hour12: false, hour: '2-digit', minute: '2-digit' });
             const targetDate = new Date(now.toLocaleString('en-US', { timeZone: c.zone }));
             const diffHours = Math.round((targetDate - now) / 3600000);
             const offsetStr = diffHours === 0 ? '與本地相同' : `${diffHours > 0 ? '+' : ''}${diffHours} 小時`;
-
-            const card = document.createElement('div');
-            card.className = 'clock-card';
-            card.innerHTML = `
-                <div>
-                    <div class="city-name">${c.name}</div>
-                    <div class="time-offset">${offsetStr}</div>
-                </div>
-                <div class="digital-time">${timeStr}</div>
-            `;
-            container.appendChild(card);
+            card.querySelector('.digital-time').textContent = timeStr;
+            card.querySelector('.time-offset').textContent = offsetStr;
         });
     }
-    setInterval(updateWorldClocks, 1000);
-    updateWorldClocks();
+    function deleteCity(i) {
+        cities.splice(i, 1);
+        saveCities();
+        updateWorldClocks();
+    }
+    setInterval(tickWorldClocks, 1000);
 
-    function openAddCityModal() { document.getElementById('cityModal').style.display = 'flex'; }
+    // --- 新增城市的清單：各國首都＋中國直轄市／省會／自治區首府／特別行政區 ---
+    // 每一筆：[城市, 國家或省份, 英文名, IANA 時區]
+    // 首都沒有自己的時區名稱時，用同一時區裡的代表城市（例如新德里用 Asia/Kolkata）。
+    const CITY_GROUPS = [
+        ['常用城市', [
+            ['鹽湖城', '美國猶他州', 'Salt Lake City', 'America/Denver'],
+            ['德州', '美國', 'Texas', 'America/Chicago'],
+            ['紐約', '美國', 'New York', 'America/New_York'],
+            ['舊金山', '美國加州', 'San Francisco', 'America/Los_Angeles'],
+        ]],
+        ['中國（直轄市、省會、自治區首府、特區）', [
+            ['北京', '中國首都', 'Beijing', 'Asia/Shanghai'],
+            ['上海', '直轄市', 'Shanghai', 'Asia/Shanghai'],
+            ['天津', '直轄市', 'Tianjin', 'Asia/Shanghai'],
+            ['重慶', '直轄市', 'Chongqing', 'Asia/Shanghai'],
+            ['石家莊', '河北', 'Shijiazhuang', 'Asia/Shanghai'],
+            ['太原', '山西', 'Taiyuan', 'Asia/Shanghai'],
+            ['瀋陽', '遼寧', 'Shenyang', 'Asia/Shanghai'],
+            ['長春', '吉林', 'Changchun', 'Asia/Shanghai'],
+            ['哈爾濱', '黑龍江', 'Harbin', 'Asia/Shanghai'],
+            ['南京', '江蘇', 'Nanjing', 'Asia/Shanghai'],
+            ['杭州', '浙江', 'Hangzhou', 'Asia/Shanghai'],
+            ['合肥', '安徽', 'Hefei', 'Asia/Shanghai'],
+            ['福州', '福建', 'Fuzhou', 'Asia/Shanghai'],
+            ['南昌', '江西', 'Nanchang', 'Asia/Shanghai'],
+            ['濟南', '山東', 'Jinan', 'Asia/Shanghai'],
+            ['鄭州', '河南', 'Zhengzhou', 'Asia/Shanghai'],
+            ['武漢', '湖北', 'Wuhan', 'Asia/Shanghai'],
+            ['長沙', '湖南', 'Changsha', 'Asia/Shanghai'],
+            ['廣州', '廣東', 'Guangzhou', 'Asia/Shanghai'],
+            ['海口', '海南', 'Haikou', 'Asia/Shanghai'],
+            ['成都', '四川', 'Chengdu', 'Asia/Shanghai'],
+            ['貴陽', '貴州', 'Guiyang', 'Asia/Shanghai'],
+            ['昆明', '雲南', 'Kunming', 'Asia/Shanghai'],
+            ['西安', '陝西', "Xi'an", 'Asia/Shanghai'],
+            ['蘭州', '甘肅', 'Lanzhou', 'Asia/Shanghai'],
+            ['西寧', '青海', 'Xining', 'Asia/Shanghai'],
+            ['呼和浩特', '內蒙古', 'Hohhot', 'Asia/Shanghai'],
+            ['南寧', '廣西', 'Nanning', 'Asia/Shanghai'],
+            ['拉薩', '西藏', 'Lhasa', 'Asia/Shanghai'],
+            ['銀川', '寧夏', 'Yinchuan', 'Asia/Shanghai'],
+            ['烏魯木齊', '新疆', 'Urumqi', 'Asia/Shanghai'],
+            ['香港', '香港', 'Hong Kong', 'Asia/Hong_Kong'],
+            ['澳門', '澳門', 'Macau', 'Asia/Macau'],
+        ]],
+        ['亞洲', [
+            ['台北', '台灣', 'Taipei', 'Asia/Taipei'],
+            ['東京', '日本', 'Tokyo', 'Asia/Tokyo'],
+            ['首爾', '南韓', 'Seoul', 'Asia/Seoul'],
+            ['平壤', '北韓', 'Pyongyang', 'Asia/Pyongyang'],
+            ['烏蘭巴托', '蒙古', 'Ulaanbaatar', 'Asia/Ulaanbaatar'],
+            ['馬尼拉', '菲律賓', 'Manila', 'Asia/Manila'],
+            ['河內', '越南', 'Hanoi', 'Asia/Ho_Chi_Minh'],
+            ['永珍', '寮國', 'Vientiane', 'Asia/Vientiane'],
+            ['金邊', '柬埔寨', 'Phnom Penh', 'Asia/Phnom_Penh'],
+            ['曼谷', '泰國', 'Bangkok', 'Asia/Bangkok'],
+            ['奈比多', '緬甸', 'Naypyidaw', 'Asia/Yangon'],
+            ['吉隆坡', '馬來西亞', 'Kuala Lumpur', 'Asia/Kuala_Lumpur'],
+            ['新加坡', '新加坡', 'Singapore', 'Asia/Singapore'],
+            ['斯里巴加灣', '汶萊', 'Bandar Seri Begawan', 'Asia/Brunei'],
+            ['雅加達', '印尼', 'Jakarta', 'Asia/Jakarta'],
+            ['帝力', '東帝汶', 'Dili', 'Asia/Dili'],
+            ['新德里', '印度', 'New Delhi', 'Asia/Kolkata'],
+            ['伊斯蘭瑪巴德', '巴基斯坦', 'Islamabad', 'Asia/Karachi'],
+            ['達卡', '孟加拉', 'Dhaka', 'Asia/Dhaka'],
+            ['加德滿都', '尼泊爾', 'Kathmandu', 'Asia/Kathmandu'],
+            ['廷布', '不丹', 'Thimphu', 'Asia/Thimphu'],
+            ['斯里賈亞瓦德納普拉科特', '斯里蘭卡', 'Sri Jayawardenepura Kotte', 'Asia/Colombo'],
+            ['馬列', '馬爾地夫', 'Malé', 'Indian/Maldives'],
+            ['喀布爾', '阿富汗', 'Kabul', 'Asia/Kabul'],
+            ['阿斯塔納', '哈薩克', 'Astana', 'Asia/Almaty'],
+            ['塔什干', '烏茲別克', 'Tashkent', 'Asia/Tashkent'],
+            ['比斯凱克', '吉爾吉斯', 'Bishkek', 'Asia/Bishkek'],
+            ['杜尚別', '塔吉克', 'Dushanbe', 'Asia/Dushanbe'],
+            ['阿什哈巴德', '土庫曼', 'Ashgabat', 'Asia/Ashgabat'],
+            ['德黑蘭', '伊朗', 'Tehran', 'Asia/Tehran'],
+            ['巴格達', '伊拉克', 'Baghdad', 'Asia/Baghdad'],
+            ['利雅德', '沙烏地阿拉伯', 'Riyadh', 'Asia/Riyadh'],
+            ['阿布達比', '阿拉伯聯合大公國', 'Abu Dhabi', 'Asia/Dubai'],
+            ['杜哈', '卡達', 'Doha', 'Asia/Qatar'],
+            ['麥納瑪', '巴林', 'Manama', 'Asia/Bahrain'],
+            ['科威特城', '科威特', 'Kuwait City', 'Asia/Kuwait'],
+            ['馬斯開特', '阿曼', 'Muscat', 'Asia/Muscat'],
+            ['沙那', '葉門', "Sana'a", 'Asia/Aden'],
+            ['安曼', '約旦', 'Amman', 'Asia/Amman'],
+            ['大馬士革', '敘利亞', 'Damascus', 'Asia/Damascus'],
+            ['貝魯特', '黎巴嫩', 'Beirut', 'Asia/Beirut'],
+            ['耶路撒冷', '以色列', 'Jerusalem', 'Asia/Jerusalem'],
+            ['拉姆安拉', '巴勒斯坦', 'Ramallah', 'Asia/Hebron'],
+            ['安卡拉', '土耳其', 'Ankara', 'Europe/Istanbul'],
+            ['提比里斯', '喬治亞', 'Tbilisi', 'Asia/Tbilisi'],
+            ['葉里溫', '亞美尼亞', 'Yerevan', 'Asia/Yerevan'],
+            ['巴庫', '亞塞拜然', 'Baku', 'Asia/Baku'],
+        ]],
+        ['歐洲', [
+            ['倫敦', '英國', 'London', 'Europe/London'],
+            ['都柏林', '愛爾蘭', 'Dublin', 'Europe/Dublin'],
+            ['巴黎', '法國', 'Paris', 'Europe/Paris'],
+            ['柏林', '德國', 'Berlin', 'Europe/Berlin'],
+            ['阿姆斯特丹', '荷蘭', 'Amsterdam', 'Europe/Amsterdam'],
+            ['布魯塞爾', '比利時', 'Brussels', 'Europe/Brussels'],
+            ['盧森堡', '盧森堡', 'Luxembourg', 'Europe/Luxembourg'],
+            ['伯恩', '瑞士', 'Bern', 'Europe/Zurich'],
+            ['瓦都茲', '列支敦斯登', 'Vaduz', 'Europe/Vaduz'],
+            ['維也納', '奧地利', 'Vienna', 'Europe/Vienna'],
+            ['羅馬', '義大利', 'Rome', 'Europe/Rome'],
+            ['梵蒂岡', '梵蒂岡', 'Vatican City', 'Europe/Vatican'],
+            ['聖馬利諾', '聖馬利諾', 'San Marino', 'Europe/San_Marino'],
+            ['摩納哥', '摩納哥', 'Monaco', 'Europe/Monaco'],
+            ['安道爾城', '安道爾', 'Andorra la Vella', 'Europe/Andorra'],
+            ['馬德里', '西班牙', 'Madrid', 'Europe/Madrid'],
+            ['里斯本', '葡萄牙', 'Lisbon', 'Europe/Lisbon'],
+            ['瓦勒他', '馬爾他', 'Valletta', 'Europe/Malta'],
+            ['雷克雅維克', '冰島', 'Reykjavik', 'Atlantic/Reykjavik'],
+            ['奧斯陸', '挪威', 'Oslo', 'Europe/Oslo'],
+            ['斯德哥爾摩', '瑞典', 'Stockholm', 'Europe/Stockholm'],
+            ['哥本哈根', '丹麥', 'Copenhagen', 'Europe/Copenhagen'],
+            ['赫爾辛基', '芬蘭', 'Helsinki', 'Europe/Helsinki'],
+            ['塔林', '愛沙尼亞', 'Tallinn', 'Europe/Tallinn'],
+            ['里加', '拉脫維亞', 'Riga', 'Europe/Riga'],
+            ['維爾紐斯', '立陶宛', 'Vilnius', 'Europe/Vilnius'],
+            ['華沙', '波蘭', 'Warsaw', 'Europe/Warsaw'],
+            ['布拉格', '捷克', 'Prague', 'Europe/Prague'],
+            ['布拉提斯拉瓦', '斯洛伐克', 'Bratislava', 'Europe/Bratislava'],
+            ['布達佩斯', '匈牙利', 'Budapest', 'Europe/Budapest'],
+            ['盧比安納', '斯洛維尼亞', 'Ljubljana', 'Europe/Ljubljana'],
+            ['札格雷布', '克羅埃西亞', 'Zagreb', 'Europe/Zagreb'],
+            ['塞拉耶佛', '波士尼亞與赫塞哥維納', 'Sarajevo', 'Europe/Sarajevo'],
+            ['貝爾格勒', '塞爾維亞', 'Belgrade', 'Europe/Belgrade'],
+            ['波德里查', '蒙特內哥羅', 'Podgorica', 'Europe/Podgorica'],
+            ['普里斯提納', '科索沃', 'Pristina', 'Europe/Belgrade'],
+            ['史高比耶', '北馬其頓', 'Skopje', 'Europe/Skopje'],
+            ['地拉那', '阿爾巴尼亞', 'Tirana', 'Europe/Tirane'],
+            ['雅典', '希臘', 'Athens', 'Europe/Athens'],
+            ['尼古西亞', '賽普勒斯', 'Nicosia', 'Asia/Nicosia'],
+            ['索菲亞', '保加利亞', 'Sofia', 'Europe/Sofia'],
+            ['布加勒斯特', '羅馬尼亞', 'Bucharest', 'Europe/Bucharest'],
+            ['基希涅夫', '摩爾多瓦', 'Chișinău', 'Europe/Chisinau'],
+            ['基輔', '烏克蘭', 'Kyiv', 'Europe/Kiev'],
+            ['明斯克', '白俄羅斯', 'Minsk', 'Europe/Minsk'],
+            ['莫斯科', '俄羅斯', 'Moscow', 'Europe/Moscow'],
+        ]],
+        ['非洲', [
+            ['開羅', '埃及', 'Cairo', 'Africa/Cairo'],
+            ['的黎波里', '利比亞', 'Tripoli', 'Africa/Tripoli'],
+            ['突尼斯', '突尼西亞', 'Tunis', 'Africa/Tunis'],
+            ['阿爾及爾', '阿爾及利亞', 'Algiers', 'Africa/Algiers'],
+            ['拉巴特', '摩洛哥', 'Rabat', 'Africa/Casablanca'],
+            ['諾克少', '茅利塔尼亞', 'Nouakchott', 'Africa/Nouakchott'],
+            ['達喀爾', '塞內加爾', 'Dakar', 'Africa/Dakar'],
+            ['班竹', '甘比亞', 'Banjul', 'Africa/Banjul'],
+            ['比索', '幾內亞比索', 'Bissau', 'Africa/Bissau'],
+            ['柯那克里', '幾內亞', 'Conakry', 'Africa/Conakry'],
+            ['自由城', '獅子山', 'Freetown', 'Africa/Freetown'],
+            ['蒙羅維亞', '賴比瑞亞', 'Monrovia', 'Africa/Monrovia'],
+            ['雅穆索戈', '象牙海岸', 'Yamoussoukro', 'Africa/Abidjan'],
+            ['阿克拉', '迦納', 'Accra', 'Africa/Accra'],
+            ['洛美', '多哥', 'Lomé', 'Africa/Lome'],
+            ['波多諾伏', '貝南', 'Porto-Novo', 'Africa/Porto-Novo'],
+            ['瓦加杜古', '布吉納法索', 'Ouagadougou', 'Africa/Ouagadougou'],
+            ['巴馬科', '馬利', 'Bamako', 'Africa/Bamako'],
+            ['尼阿美', '尼日', 'Niamey', 'Africa/Niamey'],
+            ['阿布加', '奈及利亞', 'Abuja', 'Africa/Lagos'],
+            ['恩加美納', '查德', "N'Djamena", 'Africa/Ndjamena'],
+            ['雅溫德', '喀麥隆', 'Yaoundé', 'Africa/Douala'],
+            ['班基', '中非共和國', 'Bangui', 'Africa/Bangui'],
+            ['馬拉博', '赤道幾內亞', 'Malabo', 'Africa/Malabo'],
+            ['自由市', '加彭', 'Libreville', 'Africa/Libreville'],
+            ['聖多美', '聖多美普林西比', 'São Tomé', 'Africa/Sao_Tome'],
+            ['布拉薩市', '剛果共和國', 'Brazzaville', 'Africa/Brazzaville'],
+            ['金夏沙', '剛果民主共和國', 'Kinshasa', 'Africa/Kinshasa'],
+            ['羅安達', '安哥拉', 'Luanda', 'Africa/Luanda'],
+            ['喀土穆', '蘇丹', 'Khartoum', 'Africa/Khartoum'],
+            ['朱巴', '南蘇丹', 'Juba', 'Africa/Juba'],
+            ['阿斯瑪拉', '厄利垂亞', 'Asmara', 'Africa/Asmara'],
+            ['吉布地市', '吉布地', 'Djibouti', 'Africa/Djibouti'],
+            ['阿迪斯阿貝巴', '衣索比亞', 'Addis Ababa', 'Africa/Addis_Ababa'],
+            ['摩加迪休', '索馬利亞', 'Mogadishu', 'Africa/Mogadishu'],
+            ['奈洛比', '肯亞', 'Nairobi', 'Africa/Nairobi'],
+            ['康培拉', '烏干達', 'Kampala', 'Africa/Kampala'],
+            ['吉佳利', '盧安達', 'Kigali', 'Africa/Kigali'],
+            ['基特加', '蒲隆地', 'Gitega', 'Africa/Bujumbura'],
+            ['杜篤馬', '坦尚尼亞', 'Dodoma', 'Africa/Dar_es_Salaam'],
+            ['路沙卡', '尚比亞', 'Lusaka', 'Africa/Lusaka'],
+            ['里朗威', '馬拉威', 'Lilongwe', 'Africa/Blantyre'],
+            ['馬布多', '莫三比克', 'Maputo', 'Africa/Maputo'],
+            ['哈拉雷', '辛巴威', 'Harare', 'Africa/Harare'],
+            ['嘉柏隆里', '波札那', 'Gaborone', 'Africa/Gaborone'],
+            ['溫荷克', '納米比亞', 'Windhoek', 'Africa/Windhoek'],
+            ['普利托利亞', '南非', 'Pretoria', 'Africa/Johannesburg'],
+            ['馬塞魯', '賴索托', 'Maseru', 'Africa/Maseru'],
+            ['墨巴本', '史瓦帝尼', 'Mbabane', 'Africa/Mbabane'],
+            ['安塔那那利佛', '馬達加斯加', 'Antananarivo', 'Indian/Antananarivo'],
+            ['莫洛尼', '葛摩', 'Moroni', 'Indian/Comoro'],
+            ['路易士港', '模里西斯', 'Port Louis', 'Indian/Mauritius'],
+            ['維多利亞', '塞席爾', 'Victoria', 'Indian/Mahe'],
+            ['培亞', '維德角', 'Praia', 'Atlantic/Cape_Verde'],
+        ]],
+        ['北美洲、中美洲、加勒比海', [
+            ['華盛頓', '美國', 'Washington, D.C.', 'America/New_York'],
+            ['渥太華', '加拿大', 'Ottawa', 'America/Toronto'],
+            ['墨西哥城', '墨西哥', 'Mexico City', 'America/Mexico_City'],
+            ['瓜地馬拉市', '瓜地馬拉', 'Guatemala City', 'America/Guatemala'],
+            ['貝爾墨潘', '貝里斯', 'Belmopan', 'America/Belize'],
+            ['聖薩爾瓦多', '薩爾瓦多', 'San Salvador', 'America/El_Salvador'],
+            ['德古斯加巴', '宏都拉斯', 'Tegucigalpa', 'America/Tegucigalpa'],
+            ['馬拿瓜', '尼加拉瓜', 'Managua', 'America/Managua'],
+            ['聖荷西', '哥斯大黎加', 'San José', 'America/Costa_Rica'],
+            ['巴拿馬市', '巴拿馬', 'Panama City', 'America/Panama'],
+            ['哈瓦那', '古巴', 'Havana', 'America/Havana'],
+            ['京斯敦', '牙買加', 'Kingston', 'America/Jamaica'],
+            ['太子港', '海地', 'Port-au-Prince', 'America/Port-au-Prince'],
+            ['聖多明哥', '多明尼加', 'Santo Domingo', 'America/Santo_Domingo'],
+            ['拿索', '巴哈馬', 'Nassau', 'America/Nassau'],
+            ['巴士地', '聖克里斯多福及尼維斯', 'Basseterre', 'America/St_Kitts'],
+            ['聖約翰', '安地卡及巴布達', "St. John's", 'America/Antigua'],
+            ['羅梭', '多米尼克', 'Roseau', 'America/Dominica'],
+            ['卡斯翠', '聖露西亞', 'Castries', 'America/St_Lucia'],
+            ['金石城', '聖文森及格瑞那丁', 'Kingstown', 'America/St_Vincent'],
+            ['橋鎮', '巴貝多', 'Bridgetown', 'America/Barbados'],
+            ['聖喬治', '格瑞那達', "St. George's", 'America/Grenada'],
+            ['西班牙港', '千里達及托巴哥', 'Port of Spain', 'America/Port_of_Spain'],
+        ]],
+        ['南美洲', [
+            ['卡拉卡斯', '委內瑞拉', 'Caracas', 'America/Caracas'],
+            ['波哥大', '哥倫比亞', 'Bogotá', 'America/Bogota'],
+            ['基多', '厄瓜多', 'Quito', 'America/Guayaquil'],
+            ['利馬', '秘魯', 'Lima', 'America/Lima'],
+            ['拉巴斯', '玻利維亞', 'La Paz', 'America/La_Paz'],
+            ['聖地牙哥', '智利', 'Santiago', 'America/Santiago'],
+            ['布宜諾斯艾利斯', '阿根廷', 'Buenos Aires', 'America/Argentina/Buenos_Aires'],
+            ['蒙特維多', '烏拉圭', 'Montevideo', 'America/Montevideo'],
+            ['亞松森', '巴拉圭', 'Asunción', 'America/Asuncion'],
+            ['巴西利亞', '巴西', 'Brasília', 'America/Sao_Paulo'],
+            ['喬治城', '蓋亞那', 'Georgetown', 'America/Guyana'],
+            ['巴拉馬利波', '蘇利南', 'Paramaribo', 'America/Paramaribo'],
+        ]],
+        ['大洋洲', [
+            ['坎培拉', '澳洲', 'Canberra', 'Australia/Sydney'],
+            ['威靈頓', '紐西蘭', 'Wellington', 'Pacific/Auckland'],
+            ['莫士比港', '巴布亞紐幾內亞', 'Port Moresby', 'Pacific/Port_Moresby'],
+            ['荷尼阿拉', '索羅門群島', 'Honiara', 'Pacific/Guadalcanal'],
+            ['維拉港', '萬那杜', 'Port Vila', 'Pacific/Efate'],
+            ['蘇瓦', '斐濟', 'Suva', 'Pacific/Fiji'],
+            ['努瓜婁發', '東加', "Nuku'alofa", 'Pacific/Tongatapu'],
+            ['阿皮亞', '薩摩亞', 'Apia', 'Pacific/Apia'],
+            ['富納富提', '吐瓦魯', 'Funafuti', 'Pacific/Funafuti'],
+            ['塔拉瓦', '吉里巴斯', 'Tarawa', 'Pacific/Tarawa'],
+            ['雅連', '諾魯', 'Yaren', 'Pacific/Nauru'],
+            ['馬久羅', '馬紹爾群島', 'Majuro', 'Pacific/Majuro'],
+            ['帕利基爾', '密克羅尼西亞', 'Palikir', 'Pacific/Pohnpei'],
+            ['恩吉魯穆德', '帛琉', 'Ngerulmud', 'Pacific/Palau'],
+        ]],
+    ];
+
+    // 產生清單選項；value 是「群組序號-城市序號」
+    (function buildCitySelect() {
+        const sel = document.getElementById('citySelect');
+        CITY_GROUPS.forEach(([groupName, list], gi) => {
+            const og = document.createElement('optgroup');
+            og.label = groupName;
+            list.forEach(([name, where, en], ci) => {
+                const opt = document.createElement('option');
+                opt.value = `${gi}-${ci}`;
+                opt.textContent = name === where ? `${name} (${en})` : `${name} · ${where} (${en})`;
+                opt.dataset.search = `${name} ${where} ${en}`.toLowerCase();
+                og.appendChild(opt);
+            });
+            sel.appendChild(og);
+        });
+    })();
+
+    function filterCities() {
+        const q = document.getElementById('citySearch').value.trim().toLowerCase();
+        const sel = document.getElementById('citySelect');
+        let first = null, count = 0;
+        sel.querySelectorAll('optgroup').forEach(og => {
+            let any = false;
+            og.querySelectorAll('option').forEach(opt => {
+                const show = !q || opt.dataset.search.includes(q);
+                opt.hidden = !show;
+                if (show) { any = true; count++; if (!first) first = opt; }
+            });
+            og.hidden = !any;
+        });
+        // 目前選到的被篩掉了，就改選第一個符合的
+        if (!sel.selectedOptions[0] || sel.selectedOptions[0].hidden) sel.value = first ? first.value : '';
+        document.getElementById('cityHint').textContent =
+            count ? '雙擊城市可以直接新增' : '找不到符合的城市';
+    }
+    document.getElementById('citySearch').addEventListener('input', filterCities);
+    document.getElementById('citySearch').addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); addCity(); }
+        if (e.key === 'ArrowDown') { e.preventDefault(); document.getElementById('citySelect').focus(); }
+    });
+    document.getElementById('citySelect').addEventListener('dblclick', e => {
+        if (e.target.tagName === 'OPTION') addCity();
+    });
+    document.getElementById('citySelect').addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); addCity(); }
+    });
+
+    function openAddCityModal() {
+        const search = document.getElementById('citySearch');
+        search.value = '';
+        document.getElementById('citySelect').value = '';
+        filterCities();
+        document.getElementById('cityModal').style.display = 'flex';
+        search.focus();
+    }
     function addCity() {
-        const val = document.getElementById('citySelect').value.split('|');
-        if (!cities.find(c => c.zone === val[0])) {
-            cities.push({ zone: val[0], name: val[1] });
+        const v = document.getElementById('citySelect').value;
+        if (!v) { document.getElementById('cityHint').textContent = '請先選一個城市'; return; }
+        const [gi, ci] = v.split('-').map(Number);
+        const [name, , , zone] = CITY_GROUPS[gi][1][ci];
+        // 很多中國城市同樣是 Asia/Shanghai，所以用「時區＋名稱」判斷是否重複
+        if (!cities.find(c => c.zone === zone && c.name === name)) {
+            cities.push({ zone, name });
             saveCities();
             updateWorldClocks();
         }
@@ -650,7 +997,7 @@
             const card = document.createElement('div');
             card.className = 'alarm-card' + (a.enabled ? '' : ' off');
             card.innerHTML = `
-                <div>
+                <div class="alarm-info" title="點一下修改這個鬧鐘" onclick="if (event.target.tagName !== 'BUTTON') openEditAlarmModal(${a.id})">
                     <div class="alarm-time">${a.time}</div>
                     <div class="alarm-label">${escapeHtml(a.label)} · ${a.sound === 'spring' ? '四季—春' : '經典響鈴'}</div>
                     <div class="alarm-repeat">${repeatText(a)}${a.repeat === 'date'
@@ -662,6 +1009,7 @@
                         <input type="checkbox" ${a.enabled ? 'checked' : ''} onchange="toggleAlarm(${a.id})">
                         <span class="slider"></span>
                     </label>
+                    <button class="alarm-edit" title="修改鬧鐘" onclick="openEditAlarmModal(${a.id})">✎</button>
                     <button class="alarm-del" title="刪除鬧鐘" onclick="deleteAlarm(${a.id})">✕</button>
                 </div>
             `;
@@ -669,6 +1017,7 @@
         });
     }
     renderAlarms();
+    updateWorldClocks();  // 放在這裡：要等 escapeHtml 定義好
 
     // --- Google 日曆：用瀏覽器打開「新增活動」頁，內容已填好，按儲存即可 ---
     function googleCalendarUrl(a) {
@@ -775,24 +1124,50 @@
         renderWeekdays();
     }));
 
+    let editingAlarmId = null;   // null = 新增；有值 = 正在修改這個鬧鐘
+
     function openAddAlarmModal() {
         const now = new Date();
+        editingAlarmId = null;
         alarmH = 7; alarmM = 0;
         alarmY = now.getFullYear(); alarmMo = now.getMonth() + 1; alarmD = now.getDate();
         selectedDays = new Set([1, 2, 3, 4, 5]);
         setRepeatMode('once');
         renderWeekdays();
         renderAlarmSpinner();
+        document.getElementById('alarmModalTitle').textContent = '新增鬧鐘';
         document.getElementById('alarmLabelInput').value = '';
+        document.getElementById('alarmGcal').checked = true;
         document.getElementById('alarmModal').style.display = 'flex';
         document.getElementById('alarmHourVal').focus();
     }
+
+    // 修改鬧鐘：用同一個視窗，先填入原本的設定
+    function openEditAlarmModal(id) {
+        const a = alarms.find(x => x.id === id);
+        if (!a) return;
+        openAddAlarmModal();
+        editingAlarmId = id;
+        [alarmH, alarmM] = a.time.split(':').map(Number);
+        if (a.repeat === 'weekly' && Array.isArray(a.days)) selectedDays = new Set(a.days);
+        if (a.repeat === 'date' && a.date) [alarmY, alarmMo, alarmD] = a.date.split('-').map(Number);
+        setRepeatMode(a.repeat || 'once');
+        renderWeekdays();
+        renderAlarmSpinner();
+        document.getElementById('alarmModalTitle').textContent = '修改鬧鐘';
+        document.getElementById('alarmLabelInput').value = a.label;
+        document.getElementById('alarmSoundSelect').value = a.sound || 'spring';
+        // 修改時預設不再開 Google 日曆（避免重複建立活動），需要的話自己勾
+        document.getElementById('alarmGcal').checked = false;
+    }
+
     function addAlarm() {
         const time = document.getElementById('alarmTimeInput').value;
         const label = document.getElementById('alarmLabelInput').value.trim() || '鬧鐘';
         const sound = document.getElementById('alarmSoundSelect').value;
         const err = document.getElementById('alarmError');
-        const alarm = { id: Date.now(), time, label, sound, enabled: true, repeat: repeatMode };
+        // 修改後一律重新開啟（例如已經響過、自動關閉的單次鬧鐘，改了時間就會再響）
+        const alarm = { id: editingAlarmId ?? Date.now(), time, label, sound, enabled: true, repeat: repeatMode };
 
         if (repeatMode === 'weekly') {
             if (selectedDays.size === 0) { err.textContent = '請至少選一天'; return; }
@@ -803,7 +1178,14 @@
             if (when <= new Date()) { err.textContent = '這個日期時間已經過去了，請選未來的時間'; return; }
             alarm.date = `${alarmY}-${pad2(alarmMo)}-${pad2(alarmD)}`;
         }
-        alarms.push(alarm);
+        if (editingAlarmId !== null) {
+            if (ringing && ringing.alarm.id === editingAlarmId) stopRinging();
+            const i = alarms.findIndex(a => a.id === editingAlarmId);
+            if (i >= 0) alarms[i] = alarm; else alarms.push(alarm);
+            editingAlarmId = null;
+        } else {
+            alarms.push(alarm);
+        }
         saveAlarms();
         if (repeatMode === 'date' && document.getElementById('alarmGcal').checked) openGoogleCalendar(alarm);
         renderAlarms();

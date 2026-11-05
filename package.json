@@ -1,7 +1,7 @@
 {
   "name": "clock-app",
   "productName": "時鐘",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "macOS 風格的桌面時鐘：世界時鐘、鬧鐘、碼錶、計時器，按 Ctrl+Alt+C 快速叫出",
   "main": "main.js",
   "private": true,
