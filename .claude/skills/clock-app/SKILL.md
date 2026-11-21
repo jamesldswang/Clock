@@ -91,10 +91,14 @@ cd /c/Users/user/ClockApp
   { id, time: 'HH:MM', label, sound: 'spring' | 'classic', enabled,
     repeat: 'once' | 'weekly' | 'date',
     days: [0..6],            // repeat === 'weekly'，0 是週日
+    startDate, endDate,      // repeat === 'weekly'，'YYYY-MM-DD'，endDate 可為 null
     date: 'YYYY-MM-DD',      // repeat === 'date'
     early: 10 }              // 有勾「提前 10 分鐘先響一次」才有（分鐘數，常數 EARLY_MIN）
   ```
-  - 單次（`once`）和指定日期（`date`）的鬧鐘響過之後，會自動把 `enabled` 設成 `false`。
+  - 畫面上只有「單次」和「每週」兩個選項。新增的單次鬧鐘一律存成 `repeat: 'date'`；`once`（沒有日期）只剩舊資料會有，仍然照舊運作。
+  - 每週鬧鐘多了 `startDate` 和 `endDate`（`'YYYY-MM-DD'`，`endDate` 為 `null` 代表不設結束）。舊資料沒有這兩個欄位，當成沒有期間限制。
+  - 單次（`once`）和指定日期（`date`）的鬧鐘響過之後，會自動把 `enabled` 設成 `false`；每週鬧鐘在結束日期前最後一次響完也會自動關閉。
+  - 新增視窗的日期轉輪由 JS 產生（`.date-spinner[data-target]`），狀態在 `dates.on`／`dates.start`／`dates.end`，調整用 `stepAlarm(unit, step, target)`。
   - 改資料格式時，要考慮使用者已經存的舊資料：缺少的欄位要有預設值，或者在載入時補上。
 
 ## 功能清單（改之前先看有沒有現成的函式可以用）
@@ -102,10 +106,10 @@ cd /c/Users/user/ClockApp
 - **世界時鐘**：`cities`、`updateWorldClocks()`（清單變動時重建卡片）、`tickWorldClocks()`（每秒只更新時間文字，不重建，否則 ✕ 按鈕會按不到）、`addCity()`、`deleteCity(i)`。可以選的城市在 `CITY_GROUPS`（每筆 `[城市, 國家或省份, 英文名, IANA 時區]`，依地區分組；`buildCitySelect()` 產生選項、`filterCities()` 搜尋）。重複判斷是「時區＋名稱」，因為很多中國城市都是 `Asia/Shanghai`。加新城市後要確認時區名稱有效（`new Intl.DateTimeFormat('en', { timeZone })` 不會丟錯）。德州用的是 `America/Chicago`。
 - **鬧鐘**：
   - 清單：`renderAlarms()`、`repeatText(a)`、`deleteAlarm(id)`、`toggleAlarm(id)`
-  - 新增：`openAddAlarmModal()`、`openEditAlarmModal(id)`（修改：同一個視窗，`editingAlarmId` 不是 null 時 `addAlarm()` 會取代原本那筆、保留 id、重新開啟）、`addAlarm()`、`setRepeatMode(mode)`
+  - 新增：`openAddAlarmModal()`、`openEditAlarmModal(id)`（修改：同一個視窗，`editingAlarmId` 不是 null 時 `addAlarm()` 會取代原本那筆、保留 id、重新開啟；舊的 `once`／`date` 都用「單次」來改，舊的每週鬧鐘沒有期間時，開始＝今天、不設結束）、`addAlarm()`、`setRepeatMode(mode)`
   - 到點判斷：`isDue(a, now, hhmm)`、`checkAlarms()`（每秒執行一次；沒有正式鬧鐘要響時，會用「現在＋early 分鐘」的日期時間去跑 `isDue`，符合就 `startRinging(a, a.early)` 響預告。預告不會把單次／指定日期的鬧鐘關掉）
   - 響鈴：`startRinging()`、`stopRinging()`、`ringCycle()`。流程是「鈴聲 → 用 `speechSynthesis` 念標籤（優先用 zh-TW 語音）」，一直重複，直到按停止或滿 1 分鐘。
-  - Google 日曆：`googleCalendarUrl(a)`、`openGoogleCalendar(a)`。用的是一鍵加入的網址，**是單向的**，App 裡刪除或修改鬧鐘不會同步到日曆。使用者選了這個做法；完整的 API 同步要先到 Google Cloud 設定 OAuth，所以當時沒有做。
+  - Google 日曆：`googleCalendarUrl(a, now)`、`openGoogleCalendar(a)`。每週和指定日期的鬧鐘都能加；每週會帶 `recur=RRULE:FREQ=WEEKLY;BYDAY=...`（有 `endDate` 再加 `;UNTIL=<UTC>`），起始日是 `nextWeeklyStart(a, now)`：考慮開始／結束日期後下一次會響的時間，沒有就回傳 `null`。用的是一鍵加入的網址，**是單向的**，App 裡刪除或修改鬧鐘不會同步到日曆。使用者選了這個做法；完整的 API 同步要先到 Google Cloud 設定 OAuth，所以當時沒有做。
 - **碼錶**：`toggleStopwatch()`、`lapOrReset()`（執行中是計圈，暫停中是重設）、`renderLaps()`（顯示本圈時間和累計時間，最快一圈綠色、最慢一圈紅色）、`resetStopwatch()`。
 - **計時器**：`toggleTimer()`、`resetTimer()`、`updateTimerPreview()`（輸入框改了，上方顯示馬上跟著變）、`formatTimer()`（超過 1 小時顯示成 `時:分:秒`）。
 - **鈴聲**：`playAlarmSound(type)` 會回傳鈴聲的長度（秒）。

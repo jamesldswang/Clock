@@ -4,8 +4,8 @@
 
   // 鬧鐘：新增一個指定日期的鬧鐘
   openAddAlarmModal();
-  setRepeatMode('date');
-  alarmY = new Date().getFullYear() + 1; alarmMo = 1; alarmD = 1; alarmH = 0; alarmM = 0;
+  setRepeatMode('once');
+  dates.on = { y: new Date().getFullYear() + 1, mo: 1, d: 1 }; alarmH = 0; alarmM = 0;
   renderAlarmSpinner();
   document.getElementById('alarmLabelInput').value = '新年快樂';
   addAlarm();
