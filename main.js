@@ -1,7 +1,11 @@
 const { app, BrowserWindow, globalShortcut, Tray, Menu, nativeImage, ipcMain, screen, shell } = require('electron');
 const path = require('path');
+const http = require('http');
 
 const HOTKEY = 'Control+Alt+C'; // Fn 鍵 Windows 偵測不到，改用 Ctrl+Alt+C
+// 給外部程式設定鬧鐘的本機 API（只聽 127.0.0.1）；可以用環境變數 CLOCK_API_PORT 換埠號
+const API_PORT = Number(process.env.CLOCK_API_PORT) || 17321;
+let apiStatus = '啟動中';
 
 let win, tray, pinned = false;
 
@@ -84,6 +88,66 @@ function trayIcon(size = 32) {
   return nativeImage.createFromBitmap(drawIconBitmap(size), { width: size, height: size });
 }
 
+// --- 本機 API：把請求轉給頁面的 window.clockApi.handle()，鬧鐘資料只在頁面那邊管理 ---
+function startApi() {
+  const send = (res, status, body) => {
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(body, null, 2));
+  };
+  const server = http.createServer((req, res) => {
+    // 擋掉網頁送來的請求：Host 必須是本機（防 DNS rebinding），而且不能帶 Origin（瀏覽器的跨站請求一定會帶）
+    const host = String(req.headers.host || '').toLowerCase();
+    if (host !== `127.0.0.1:${API_PORT}` && host !== `localhost:${API_PORT}`) return send(res, 403, { error: '只接受 127.0.0.1 或 localhost' });
+    if (req.headers.origin) return send(res, 403, { error: '不接受瀏覽器網頁送來的請求' });
+
+    let raw = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 64 * 1024) { send(res, 413, { error: '內容太大' }); req.destroy(); }
+    });
+    req.on('end', async () => {
+      if (res.writableEnded) return;
+      const url = new URL(req.url, `http://127.0.0.1:${API_PORT}`);
+      const parts = url.pathname.replace(/\/+$/, '').split('/').filter(Boolean); // ['api', 'alarms', id?]
+      if (parts[0] !== 'api') return send(res, 404, { error: '網址要以 /api 開頭，說明請看 GET /api' });
+      if (parts.length === 1) {
+        return send(res, 200, {
+          app: '時鐘', version: require('./package.json').version,
+          endpoints: ['GET /api/alarms', 'POST /api/alarms', 'GET /api/alarms/:id', 'PATCH /api/alarms/:id', 'DELETE /api/alarms/:id'],
+        });
+      }
+      if (parts[1] !== 'alarms' || parts.length > 3) return send(res, 404, { error: '找不到這個網址' });
+      let id = null;
+      if (parts[2] !== undefined) {
+        id = Number(parts[2]);
+        if (!Number.isInteger(id)) return send(res, 404, { error: 'id 要是數字' });
+      }
+      let body = null;
+      if (raw.trim()) {
+        try { body = JSON.parse(raw); } catch { return send(res, 400, { error: '內容不是正確的 JSON' }); }
+      }
+      try {
+        if (win.webContents.isLoading()) await new Promise((r) => win.webContents.once('did-finish-load', r));
+        const r = await win.webContents.executeJavaScript(
+          `window.clockApi.handle(${JSON.stringify({ method: req.method, id, body })})`);
+        send(res, r.status, r.body);
+      } catch (e) {
+        send(res, 500, { error: '時鐘頁面處理失敗：' + (e && e.message || e) });
+      }
+    });
+  });
+  server.on('error', (e) => {
+    apiStatus = e.code === 'EADDRINUSE' ? `埠 ${API_PORT} 被占用，API 未啟動` : 'API 未啟動';
+    console.error('API 無法啟動：' + e.message);
+    if (tray) buildTrayMenu();
+  });
+  server.listen(API_PORT, '127.0.0.1', () => {
+    apiStatus = `API：http://127.0.0.1:${API_PORT}/api`;
+    if (tray) buildTrayMenu();
+  });
+}
+
 function loginItemArgs() {
   return app.isPackaged ? [] : [path.resolve(__dirname)];
 }
@@ -94,6 +158,7 @@ function buildTrayMenu() {
   }).openAtLogin;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: `時鐘 v${app.getVersion()}`, enabled: false },
+    { label: apiStatus, enabled: false },
     { type: 'separator' },
     { label: `顯示時鐘 (Ctrl+Alt+C)`, click: showWin },
     { label: '開機自動啟動', type: 'checkbox', checked: openAtLogin, click: (item) => {
@@ -117,6 +182,7 @@ app.whenReady().then(() => {
   tray.setToolTip(`時鐘 v${app.getVersion()} — Ctrl+Alt+C`);
   tray.on('click', toggleWin);
   buildTrayMenu();
+  startApi();
 
   if (!globalShortcut.register(HOTKEY, toggleWin)) {
     console.error('快捷鍵註冊失敗，可能被其他程式佔用：' + HOTKEY);

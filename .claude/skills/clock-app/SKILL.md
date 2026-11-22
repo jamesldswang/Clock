@@ -12,7 +12,7 @@ description: 修改、測試、打包「時鐘」桌面 App（C:\Users\user\Cloc
 | 檔案 | 內容 |
 |------|------|
 | `clock.html` | **所有功能都在這裡**：HTML、CSS、JS 寫在同一個檔案。分四個區塊：世界時鐘、鬧鐘、碼錶、計時器 |
-| `main.js` | Electron 主程式：無邊框透明視窗、全域快捷鍵、系統匣選單、開機自動啟動、失焦自動隱藏、外部連結交給瀏覽器開，以及注入 App 專用的 CSS（`APP_CSS`） |
+| `main.js` | Electron 主程式：無邊框透明視窗、全域快捷鍵、系統匣選單、開機自動啟動、失焦自動隱藏、外部連結交給瀏覽器開、本機 HTTP API（`startApi()`），以及注入 App 專用的 CSS（`APP_CSS`） |
 | `preload.js` | 在右上角放版號；紅點／黃點按下去會隱藏視窗；包裝 `alert`，跳出提示時先把視窗叫出來；提供 `window.__clockApp.{show,pin,unpin}` |
 | `build.js` | 打包腳本（`npm run dist`），產出 `dist/Clock-<版號>-win-x64/` 和同名 `.zip` |
 | `tools/run-in-app.js` | 測試工具：在真正的 App 裡執行一段 JS，然後印出結果 |
@@ -77,6 +77,7 @@ cd /c/Users/user/ClockApp
 - **視窗失焦會自動隱藏。** 鬧鐘響或跳出 `alert` 時，要先呼叫 `window.__clockApp.pin()`，結束後再 `unpin()`，不然視窗會被收起來。
 - **背景要繼續計時。** BrowserWindow 設了 `backgroundThrottling: false`，視窗隱藏時碼錶、計時器、鬧鐘照常運作。另外設了 `autoplayPolicy: 'no-user-gesture-required'`，鬧鐘沒有人點擊也能出聲。
 - **每次播放鈴聲都會建立一個新的 AudioContext**，播完一定要 `close()`，否則 Chromium 的 AudioContext 數量會超過上限。
+- **本機 API**：`main.js` 的 `startApi()` 在 `127.0.0.1:17321`（環境變數 `CLOCK_API_PORT` 可改）開 HTTP 伺服器，收到 `/api/alarms[/id]` 的請求後用 `executeJavaScript` 呼叫頁面的 `window.clockApi.handle({ method, id, body })`，檢查和存檔都在頁面裡（`buildAlarmFromApi()`、`alarmToApi()`）。對外的 `repeat` 是 `once`／`weekly`，內部單次存成 `date`。安全性：Host 必須是 127.0.0.1／localhost（防 DNS rebinding），帶 `Origin` 標頭的請求一律 403（擋網頁的跨站請求）。`tools/run-in-app.js` 也會載入 `main.js`，所以測試時 API 也會啟動；要從外面打 API 測試，用 `CLOCK_API_PORT` 換一個埠號，避免跟正在跑的 App 衝突。API 文件在 README 的「API」一節，改欄位時兩邊都要更新。
 - **外部連結**：頁面用 `window.open(url)`，再由 `main.js` 的 `setWindowOpenHandler` 交給 `shell.openExternal` 打開。目前只允許 `https://calendar.google.com/`；要加別的網域，改那個判斷式。
 - **使用者輸入的文字要跳脫。** 鬧鐘標籤這類使用者自己打的字，放進 `innerHTML` 之前一定要先經過 `escapeHtml()`。
 - **開機自動啟動、寫入 Startup 資料夾這類會一直留在系統上的設定**，不要自己做，只能留給使用者在系統匣選單自己勾。之前直接建立 Startup 捷徑，被權限系統擋下來了。
@@ -93,7 +94,7 @@ cd /c/Users/user/ClockApp
     days: [0..6],            // repeat === 'weekly'，0 是週日
     startDate, endDate,      // repeat === 'weekly'，'YYYY-MM-DD'，endDate 可為 null
     date: 'YYYY-MM-DD',      // repeat === 'date'
-    early: 10 }              // 有勾「提前 10 分鐘先響一次」才有（分鐘數，常數 EARLY_MIN）
+    early: 10 }              // 有勾「提前 N 分鐘先響一次」才有（分鐘數 1～EARLY_MAX=120，預設 EARLY_DEFAULT=10；畫面上的轉輪 unit 是 'e'，狀態在 earlyMin）
   ```
   - 畫面上只有「單次」和「每週」兩個選項。新增的單次鬧鐘一律存成 `repeat: 'date'`；`once`（沒有日期）只剩舊資料會有，仍然照舊運作。
   - 每週鬧鐘多了 `startDate` 和 `endDate`（`'YYYY-MM-DD'`，`endDate` 為 `null` 代表不設結束）。舊資料沒有這兩個欄位，當成沒有期間限制。

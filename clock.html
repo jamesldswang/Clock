@@ -206,6 +206,10 @@
         #alarmModal .modal-content::-webkit-scrollbar { width: 6px; }
         #alarmModal .modal-content::-webkit-scrollbar-thumb { background: #48484a; border-radius: 3px; }
         #alarmModal .modal-content::-webkit-scrollbar-track { background: transparent; }
+        .early-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; }
+        .early-row .gcal-check { margin-top: 0; }
+        .early-text { font-size: 13px; color: #ebebf5; }
+        .early-row.off .time-spinner, .early-row.off .early-text { opacity: 0.4; }
         .gcal-check input { width: 16px; height: 16px; accent-color: #ff9f0a; padding: 0; }
         .gcal-link {
             margin-left: 8px; border: none; background: none; color: #64d2ff; font-size: 12px;
@@ -496,10 +500,21 @@
             <option value="spring">四季 —《春》(Vivaldi Spring)</option>
             <option value="classic">經典響鈴 (Classic Beep)</option>
         </select>
-        <label class="gcal-check">
-            <input type="checkbox" id="alarmEarly">
-            提前 10 分鐘先響一次
-        </label>
+        <!-- 提前提醒：勾選後用 ▲▼ 調整分鐘數（1～120） -->
+        <div class="early-row">
+            <label class="gcal-check">
+                <input type="checkbox" id="alarmEarly">
+                提前
+            </label>
+            <div class="time-spinner mini">
+                <div class="spin-col">
+                    <button type="button" class="spin-btn" data-unit="e" data-step="1">▲</button>
+                    <div class="spin-value" id="alarmEarlyVal" tabindex="0" data-unit="e">10</div>
+                    <button type="button" class="spin-btn" data-unit="e" data-step="-1">▼</button>
+                </div>
+            </div>
+            <span class="early-text">分鐘先響一次</span>
+        </div>
         <div class="alarm-error" id="alarmError"></div>
         <div style="display:flex; gap:8px; justify-content:flex-end;">
             <button class="btn btn-secondary" onclick="closeModal('alarmModal')">取消</button>
@@ -972,7 +987,8 @@
         { id: 1, time: '07:00', label: '早安鬧鐘', sound: 'spring', enabled: true, repeat: 'weekly', days: [1, 2, 3, 4, 5] }
     ]);
     const saveAlarms = () => save('clock.alarms', alarms);
-    const EARLY_MIN = 10;   // 「提前提醒」的分鐘數；鬧鐘資料裡存 early: 10
+    // 「提前提醒」的分鐘數：鬧鐘資料裡存 early: N（1～120），沒有勾就沒有這個欄位
+    const EARLY_DEFAULT = 10, EARLY_MAX = 120;
 
     const WD = ['日', '一', '二', '三', '四', '五', '六'];
     const pad2 = n => String(n).padStart(2, '0');
@@ -1112,7 +1128,7 @@
 
     // --- 鬧鐘時間／日期轉輪：▲▼ 按鈕（按住連續）、鍵盤上下鍵、滑鼠滾輪 ---
     // 日期有三組：on = 單次的日期，start／end = 每週的開始／結束日期
-    let alarmH = 7, alarmM = 0;
+    let alarmH = 7, alarmM = 0, earlyMin = EARLY_DEFAULT;
     const dates = { on: {}, start: {}, end: {} };
     let repeatMode = 'once', selectedDays = new Set();
     const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
@@ -1137,6 +1153,7 @@
         document.getElementById('alarmHourVal').textContent = pad2(alarmH);
         document.getElementById('alarmMinVal').textContent = pad2(alarmM);
         document.getElementById('alarmTimeInput').value = `${pad2(alarmH)}:${pad2(alarmM)}`;
+        document.getElementById('alarmEarlyVal').textContent = earlyMin;
         for (const [t, p] of Object.entries(dates)) {
             document.getElementById(t + '_y').textContent = p.y;
             document.getElementById(t + '_mo').textContent = pad2(p.mo);
@@ -1148,6 +1165,10 @@
     function stepAlarm(unit, step, target) {
         if (unit === 'h') alarmH = (alarmH + step + 24) % 24;
         else if (unit === 'm') alarmM = (alarmM + step + 60) % 60;
+        else if (unit === 'e') {
+            earlyMin = Math.min(EARLY_MAX, Math.max(1, earlyMin + step));
+            setEarly(true);   // 調了分鐘數就代表要提前提醒
+        }
         else {
             const p = dates[target];
             if (unit === 'y') p.y = Math.max(Math.min(new Date().getFullYear(), p.y), p.y + step);
@@ -1194,6 +1215,13 @@
     document.querySelectorAll('#repeatSeg .seg-btn').forEach(b =>
         b.addEventListener('click', () => setRepeatMode(b.dataset.mode)));
 
+    // 提前提醒：沒勾的時候分鐘數變淡
+    function setEarly(on) {
+        document.getElementById('alarmEarly').checked = on;
+        document.querySelector('#alarmModal .early-row').classList.toggle('off', !on);
+    }
+    document.getElementById('alarmEarly').addEventListener('change', e => setEarly(e.target.checked));
+
     // 「不設結束日期」打勾時，結束日期轉輪變灰
     function setNoEnd(on) {
         document.getElementById('alarmNoEnd').checked = on;
@@ -1238,7 +1266,9 @@
         document.getElementById('alarmModalTitle').textContent = '新增鬧鐘';
         document.getElementById('alarmLabelInput').value = '';
         document.getElementById('alarmGcal').checked = true;
-        document.getElementById('alarmEarly').checked = false;
+        earlyMin = EARLY_DEFAULT;
+        setEarly(false);
+        document.getElementById('alarmEarlyVal').textContent = earlyMin;
         document.getElementById('alarmModal').style.display = 'flex';
         document.getElementById('alarmHourVal').focus();
     }
@@ -1267,7 +1297,9 @@
         document.getElementById('alarmModalTitle').textContent = '修改鬧鐘';
         document.getElementById('alarmLabelInput').value = a.label;
         document.getElementById('alarmSoundSelect').value = a.sound || 'spring';
-        document.getElementById('alarmEarly').checked = !!a.early;
+        earlyMin = a.early || EARLY_DEFAULT;
+        setEarly(!!a.early);
+        document.getElementById('alarmEarlyVal').textContent = earlyMin;
         // 修改時預設不再開 Google 日曆（避免重複建立活動），需要的話自己勾
         document.getElementById('alarmGcal').checked = false;
     }
@@ -1280,7 +1312,7 @@
         const now = new Date();
         // 修改後一律重新開啟（例如已經響過、自動關閉的單次鬧鐘，改了時間就會再響）
         const alarm = { id: editingAlarmId ?? Date.now(), time, label, sound, enabled: true };
-        if (document.getElementById('alarmEarly').checked) alarm.early = EARLY_MIN;
+        if (document.getElementById('alarmEarly').checked) alarm.early = earlyMin;
 
         if (repeatMode === 'once') {
             // 單次一律存成指定日期（repeat: 'date'），響完自動關閉
@@ -1316,6 +1348,117 @@
         renderAlarms();
         closeModal('alarmModal');
     }
+
+    // --- 外部 API：main.js 的本機 HTTP 伺服器收到請求後呼叫 clockApi.handle() ---
+    // 欄位格式見 README 的「API」一節。回傳 { status, body }。
+    const DAY_PRESETS = { daily: [0, 1, 2, 3, 4, 5, 6], weekdays: [1, 2, 3, 4, 5], weekends: [0, 6] };
+    const isYmd = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) &&
+        ymd(new Date(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10))) === v;   // 也擋掉 2026-02-30
+
+    // 對外的格式：單次一律寫 'once'（內部存成 'date'）
+    function alarmToApi(a) {
+        const out = {
+            id: a.id, time: a.time, label: a.label, sound: a.sound || 'spring', enabled: !!a.enabled,
+            repeat: a.repeat === 'weekly' ? 'weekly' : 'once', early: a.early || 0, text: repeatText(a),
+        };
+        if (a.repeat === 'weekly') Object.assign(out, { days: a.days, startDate: a.startDate || null, endDate: a.endDate || null });
+        else out.date = a.date || null;
+        return out;
+    }
+
+    // 檢查並組出要存的鬧鐘；有錯回傳 { error }
+    function buildAlarmFromApi(input, id, now = new Date()) {
+        if (!input || typeof input !== 'object' || Array.isArray(input)) return { error: '內容要是 JSON 物件' };
+        const m = /^(\d{1,2}):(\d{2})$/.exec(String(input.time ?? ''));
+        if (!m || +m[1] > 23 || +m[2] > 59) return { error: 'time 要是 "HH:MM"，例如 "07:30"' };
+        const time = `${pad2(+m[1])}:${m[2]}`;
+        const label = input.label == null ? '鬧鐘' : String(input.label).trim().slice(0, 100) || '鬧鐘';
+        const sound = input.sound ?? 'spring';
+        if (!['spring', 'classic'].includes(sound)) return { error: 'sound 只能是 "spring" 或 "classic"' };
+        const enabled = input.enabled ?? true;
+        if (typeof enabled !== 'boolean') return { error: 'enabled 要是 true 或 false' };
+        const early = input.early ?? 0;
+        if (!Number.isInteger(early) || early < 0 || early > EARLY_MAX) return { error: `early 要是 0～${EARLY_MAX} 的整數（分鐘，0 = 不提前）` };
+
+        const repeat = input.repeat ?? (input.days != null ? 'weekly' : 'once');
+        const alarm = { id, time, label, sound, enabled };
+        if (early) alarm.early = early;
+
+        if (repeat === 'once' || repeat === 'date') {
+            let date = input.date;
+            if (date == null) {
+                // 沒給日期：今天這個時間還沒到就今天，否則明天
+                const t = new Date(now.getFullYear(), now.getMonth(), now.getDate(), +m[1], +m[2]);
+                if (t <= now) t.setDate(t.getDate() + 1);
+                date = ymd(t);
+            }
+            if (!isYmd(date)) return { error: 'date 要是 "YYYY-MM-DD"' };
+            const [y, mo, d] = date.split('-').map(Number);
+            if (enabled && new Date(y, mo - 1, d, +m[1], +m[2]) <= now) return { error: '這個日期時間已經過去了' };
+            alarm.repeat = 'date';
+            alarm.date = date;
+        } else if (repeat === 'weekly') {
+            let days = input.days;
+            if (typeof days === 'string') days = DAY_PRESETS[days];
+            if (!Array.isArray(days) || days.length === 0 || !days.every(x => Number.isInteger(x) && x >= 0 && x <= 6))
+                return { error: 'days 要是 0～6 的陣列（0 = 週日），或 "daily"／"weekdays"／"weekends"' };
+            const startDate = input.startDate ?? ymd(now);
+            const endDate = input.endDate ?? null;
+            if (!isYmd(startDate)) return { error: 'startDate 要是 "YYYY-MM-DD"' };
+            if (endDate !== null && !isYmd(endDate)) return { error: 'endDate 要是 "YYYY-MM-DD" 或 null（不設結束）' };
+            if (endDate && endDate < startDate) return { error: '結束日期不能早於開始日期' };
+            Object.assign(alarm, { repeat: 'weekly', days: [...new Set(days)], startDate, endDate });
+            if (enabled && !nextWeeklyStart(alarm, now)) return { error: '開始到結束日期之間，沒有還沒過的響鈴時間' };
+        } else {
+            return { error: 'repeat 只能是 "once" 或 "weekly"' };
+        }
+        return { alarm };
+    }
+
+    window.clockApi = {
+        handle({ method, id, body }) {
+            const ok = (status, b) => ({ status, body: b });
+            const fail = (status, error) => ({ status, body: { error } });
+            if (id == null) {
+                if (method === 'GET') return ok(200, alarms.map(alarmToApi));
+                if (method === 'POST') {
+                    const newId = Math.max(Date.now(), ...alarms.map(a => a.id + 1));
+                    const r = buildAlarmFromApi(body, newId);
+                    if (r.error) return fail(400, r.error);
+                    alarms.push(r.alarm);
+                    saveAlarms();
+                    renderAlarms();
+                    if (body.gcal === true) openGoogleCalendar(r.alarm);
+                    return ok(201, alarmToApi(r.alarm));
+                }
+                return fail(405, '這個網址只支援 GET、POST');
+            }
+            const i = alarms.findIndex(a => a.id === id);
+            if (i < 0) return fail(404, `找不到 id ${id} 的鬧鐘`);
+            if (method === 'GET') return ok(200, alarmToApi(alarms[i]));
+            if (method === 'DELETE') {
+                deleteAlarm(id);
+                return ok(200, { deleted: id });
+            }
+            if (method === 'PATCH') {
+                if (!body || typeof body !== 'object' || Array.isArray(body)) return fail(400, '內容要是 JSON 物件');
+                // 沒給的欄位沿用原本的設定；切換重複方式時，舊的日期欄位不帶過去
+                const cur = alarmToApi(alarms[i]);
+                delete cur.text;
+                const switching = body.repeat && body.repeat !== cur.repeat;
+                if (switching) { delete cur.date; delete cur.days; delete cur.startDate; delete cur.endDate; }
+                const r = buildAlarmFromApi({ ...cur, ...body }, id);
+                if (r.error) return fail(400, r.error);
+                if (ringing && ringing.alarm.id === id) stopRinging();
+                alarms[i] = r.alarm;
+                saveAlarms();
+                renderAlarms();
+                if (body.gcal === true) openGoogleCalendar(r.alarm);
+                return ok(200, alarmToApi(r.alarm));
+            }
+            return fail(405, '這個網址只支援 GET、PATCH、DELETE');
+        },
+    };
 
     // --- 鬧鐘響鈴：時間到播鈴聲並念出標籤，按「停止」或響滿 1 分鐘後停止 ---
     let ringing = null;      // { alarm, timer, stopAt }
